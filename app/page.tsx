@@ -351,17 +351,24 @@ function buildFocus(goal: Goal) {
   if (goal === 'condicionamento') return 'Fôlego + resistência';
   return 'Disciplina + consistência diária';
 }
-function getBaseLevel(levelType: LevelType): LevelType {
-  if (levelType === 'sedentario') return 'iniciante';
+function getBaseLevel(
+  levelType: LevelType
+): 'sedentario' | 'iniciante' | 'intermediario' {
+  if (levelType === 'sedentario') return 'sedentario';
   if (levelType === 'iniciante') return 'iniciante';
-  if (levelType === 'intermediario') return 'intermediario';
-  if (levelType === 'avancado') return 'avancado';
-  return 'iniciante';
+  return 'intermediario';
+}
+
 function generatePlan(profile: Profile): GeneratedPlan {
   const baseLevel = getBaseLevel(profile.levelType);
-  let missions: { id: string; label: string; xp: number }[] = [
-  ...exerciseBank[profile.goal][profile.place][baseLevel][profile.timeType],
-];
+
+  let missions =
+  exerciseBank[profile.goal][profile.place][baseLevel][profile.timeType] as unknown as {
+    id: string;
+    label: string;
+    xp: number;
+  }[];
+
   if (profile.levelType === 'avancado') {
     missions = enhanceAdvancedMissions(missions);
   }
