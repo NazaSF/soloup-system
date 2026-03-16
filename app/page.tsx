@@ -318,18 +318,16 @@ function playClickSound() {
   } catch {}
 }
 
-function getBaseLevel(levelType: LevelType): Exclude<LevelType, 'avancado'> {
-  return levelType === 'avancado' ? 'intermediario' : levelType;
-}
-
-function enhanceAdvancedMissions(missions: { id: string; label: string; xp: number }[]) {
+function enhanceAdvancedMissions(
+  missions: ReadonlyArray<{ id: string; label: string; xp: number }>
+): { id: string; label: string; xp: number }[] {
   return missions.map((mission) => ({
-    ...mission,
-    xp: mission.xp + 15,
+    id: mission.id,
     label:
       mission.id === 'food' || mission.id === 'water'
         ? mission.label
         : `${mission.label} • modo avançado`,
+    xp: mission.xp + 15,
   }));
 }
 
@@ -356,8 +354,9 @@ function buildFocus(goal: Goal) {
 
 function generatePlan(profile: Profile): GeneratedPlan {
   const baseLevel = getBaseLevel(profile.levelType);
-  let missions = [...exerciseBank[profile.goal][profile.place][baseLevel][profile.timeType]];
-
+  let missions: { id: string; label: string; xp: number }[] = [
+  ...exerciseBank[profile.goal][profile.place][baseLevel][profile.timeType],
+];
   if (profile.levelType === 'avancado') {
     missions = enhanceAdvancedMissions(missions);
   }
