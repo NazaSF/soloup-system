@@ -351,7 +351,12 @@ function buildFocus(goal: Goal) {
   if (goal === 'condicionamento') return 'Fôlego + resistência';
   return 'Disciplina + consistência diária';
 }
-
+function getBaseLevel(levelType: LevelType): LevelType {
+  if (levelType === 'sedentario') return 'iniciante';
+  if (levelType === 'iniciante') return 'iniciante';
+  if (levelType === 'intermediario') return 'intermediario';
+  if (levelType === 'avancado') return 'avancado';
+  return 'iniciante';
 function generatePlan(profile: Profile): GeneratedPlan {
   const baseLevel = getBaseLevel(profile.levelType);
   let missions: { id: string; label: string; xp: number }[] = [
