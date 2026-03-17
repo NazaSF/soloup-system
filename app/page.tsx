@@ -1289,7 +1289,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
         </section>
 
         <section style={twoCol}>
-          <Panel title="Boss semanal e guia">
+         <Panel title="Boss semanal e guia TESTE 123">
             <div style={box}>
               <p style={mutedTitle}>Como derrotar os bosses</p>
               <p style={mutedText}>
