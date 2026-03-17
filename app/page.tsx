@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Goal = "emagrecer" | "forca" | "condicionamento" | "disciplina";
 type Place = "casa" | "rua" | "academia";
 type LevelType = "sedentario" | "iniciante" | "intermediario" | "avancado";
 type TimeType = "10" | "20" | "40";
 type Equipment = "nenhum" | "barra" | "halter" | "academia";
-type AttributeKey = "forca" | "vitalidade" | "agilidade" | "disciplina";
+type AttributeKey = "forca" | "vitalidade" | "agilidade" | "disciplina" | "mentalidade";
 
 type Profile = {
   name: string;
@@ -26,25 +26,37 @@ type Mission = {
   label: string;
   xp: number;
   done: boolean;
-};
-
-type GeneratedPlan = {
-  className: string;
-  focus: string;
-  targetWeight: string;
-  missions: Omit<Mission, "done">[];
+  category: "treino" | "habito" | "cardio";
 };
 
 type Boss = {
+  id: string;
   name: string;
   description: string;
   rewardXp: number;
-  done: boolean;
 };
 
 type Attributes = Record<AttributeKey, number>;
 
-const SAVE_KEY = "soloup-v7-save";
+type SaveData = {
+  screen: "welcome" | "onboarding" | "system";
+  currentStep: number;
+  profile: Profile;
+  missions: Mission[];
+  xp: number;
+  level: number;
+  streak: number;
+  bestStreak: number;
+  waterDays: number;
+  perfectDays: number;
+  bossesDone: string[];
+  attributes: Attributes;
+  attributePoints: number;
+  history: { day: string; xp: number; perfect: boolean }[];
+};
+
+const SAVE_KEY = "soloup-v8-save";
+
 const questionOrder = [
   "name",
   "age",
@@ -56,620 +68,73 @@ const questionOrder = [
   "timeType",
   "equipment",
 ] as const;
+
 type StepKey = (typeof questionOrder)[number];
 
-const exerciseBank = {
-  emagrecer: {
-    casa: {
-      sedentario: {
-        "10": [
-          { id: "walk", label: "Caminhada leve 10 min", xp: 40 },
-          { id: "sq", label: "15 agachamentos", xp: 20 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada 20 min", xp: 60 },
-          { id: "sq", label: "20 agachamentos", xp: 25 },
-          { id: "abs", label: "20 abdominais", xp: 20 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "walk", label: "Caminhada 30 min", xp: 70 },
-          { id: "sq", label: "30 agachamentos", xp: 30 },
-          { id: "push", label: "10 flexões inclinadas", xp: 25 },
-          { id: "abs", label: "30 abdominais", xp: 25 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "walk", label: "Caminhada rápida 10 min", xp: 45 },
-          { id: "push", label: "10 flexões", xp: 25 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada rápida 20 min", xp: 65 },
-          { id: "push", label: "20 flexões", xp: 35 },
-          { id: "abs", label: "30 abdominais", xp: 25 },
-          { id: "sq", label: "30 agachamentos", xp: 30 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "cardio", label: "Caminhada/corrida 30 min", xp: 80 },
-          { id: "push", label: "30 flexões", xp: 40 },
-          { id: "abs", label: "40 abdominais", xp: 30 },
-          { id: "sq", label: "40 agachamentos", xp: 35 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "cardio", label: "HIIT 10 min", xp: 55 },
-          { id: "push", label: "20 flexões", xp: 35 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "cardio", label: "HIIT 15 min", xp: 70 },
-          { id: "push", label: "35 flexões", xp: 45 },
-          { id: "abs", label: "40 abdominais", xp: 30 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "cardio", label: "Circuito cardio 30 min", xp: 90 },
-          { id: "push", label: "45 flexões", xp: 50 },
-          { id: "sq", label: "50 agachamentos", xp: 40 },
-          { id: "abs", label: "50 abdominais", xp: 35 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-    },
-    rua: {
-      sedentario: {
-        "10": [
-          { id: "walk", label: "Caminhada leve 10 min", xp: 40 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada 20 min", xp: 60 },
-          { id: "stairs", label: "2 tiros curtos", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "walk", label: "Caminhada 30 min", xp: 70 },
-          { id: "stairs", label: "4 tiros curtos", xp: 30 },
-          { id: "abs", label: "20 abdominais", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "jog", label: "Caminhada rápida 10 min", xp: 45 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "jog", label: "Caminhada/corrida 20 min", xp: 70 },
-          { id: "bars", label: "10 barras ou australianas", xp: 35 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "run", label: "Cardio 30 min", xp: 85 },
-          { id: "bars", label: "15 barras ou australianas", xp: 40 },
-          { id: "abs", label: "30 abdominais", xp: 25 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "run", label: "Sprint/corrida 10 min", xp: 60 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "run", label: "Corrida intervalada 20 min", xp: 80 },
-          { id: "bars", label: "20 barras ou australianas", xp: 45 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "run", label: "Corrida intervalada 30 min", xp: 95 },
-          { id: "bars", label: "25 barras ou australianas", xp: 50 },
-          { id: "push", label: "35 flexões", xp: 40 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-    },
-    academia: {
-      sedentario: {
-        "10": [
-          { id: "bike", label: "Bike leve 10 min", xp: 40 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "bike", label: "Esteira/bike 20 min", xp: 60 },
-          { id: "mach", label: "2 máquinas leves", xp: 30 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "bike", label: "Esteira/bike 25 min", xp: 70 },
-          { id: "mach", label: "Circuito leve 20 min", xp: 40 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "bike", label: "Cardio 10 min", xp: 45 },
-          { id: "mach", label: "Supino ou puxada leve", xp: 30 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "bike", label: "Cardio 15 min", xp: 60 },
-          { id: "mach", label: "Treino leve 20 min", xp: 45 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "bike", label: "Cardio 20 min", xp: 70 },
-          { id: "mach", label: "Treino full body 25 min", xp: 55 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "cardio", label: "Cardio intenso 10 min", xp: 60 },
-          { id: "mach", label: "Superset rápido", xp: 35 },
-        ],
-        "20": [
-          { id: "cardio", label: "Cardio 15 min", xp: 70 },
-          { id: "mach", label: "Treino intenso 20 min", xp: 55 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "cardio", label: "Cardio 20 min", xp: 80 },
-          { id: "mach", label: "Treino full body intenso", xp: 70 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-    },
+const allBosses: Boss[] = [
+  {
+    id: "lazy-king",
+    name: "Rei da Preguiça",
+    description: "Mantenha 3 dias seguidos de treino.",
+    rewardXp: 180,
   },
-  forca: {
-    casa: {
-      sedentario: {
-        "10": [
-          { id: "sq", label: "15 agachamentos", xp: 20 },
-          { id: "wallpush", label: "10 flexões na parede", xp: 20 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-        ],
-        "20": [
-          { id: "sq", label: "25 agachamentos", xp: 25 },
-          { id: "push", label: "10 flexões inclinadas", xp: 25 },
-          { id: "abs", label: "20 abdominais", xp: 20 },
-        ],
-        "40": [
-          { id: "sq", label: "35 agachamentos", xp: 30 },
-          { id: "push", label: "20 flexões inclinadas", xp: 30 },
-          { id: "abs", label: "30 abdominais", xp: 25 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "push", label: "15 flexões", xp: 30 },
-          { id: "sq", label: "25 agachamentos", xp: 25 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-        "20": [
-          { id: "push", label: "25 flexões", xp: 40 },
-          { id: "sq", label: "35 agachamentos", xp: 30 },
-          { id: "abs", label: "30 abdominais", xp: 25 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-        "40": [
-          { id: "push", label: "35 flexões", xp: 50 },
-          { id: "sq", label: "45 agachamentos", xp: 35 },
-          { id: "abs", label: "40 abdominais", xp: 30 },
-          { id: "lunges", label: "20 avanços", xp: 25 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "push", label: "25 flexões", xp: 40 },
-          { id: "sq", label: "35 agachamentos", xp: 30 },
-        ],
-        "20": [
-          { id: "push", label: "40 flexões", xp: 50 },
-          { id: "sq", label: "50 agachamentos", xp: 40 },
-          { id: "abs", label: "40 abdominais", xp: 30 },
-        ],
-        "40": [
-          { id: "push", label: "50 flexões", xp: 60 },
-          { id: "sq", label: "60 agachamentos", xp: 45 },
-          { id: "abs", label: "50 abdominais", xp: 35 },
-          { id: "lunges", label: "30 avanços", xp: 30 },
-        ],
-      },
-    },
-    rua: {
-      sedentario: {
-        "10": [
-          { id: "walk", label: "Caminhada 10 min", xp: 30 },
-          { id: "bars", label: "5 barras ou australianas", xp: 25 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada 15 min", xp: 35 },
-          { id: "bars", label: "8 barras ou australianas", xp: 30 },
-          { id: "abs", label: "20 abdominais", xp: 20 },
-        ],
-        "40": [
-          { id: "walk", label: "Caminhada 20 min", xp: 40 },
-          { id: "bars", label: "10 barras ou australianas", xp: 35 },
-          { id: "push", label: "15 flexões", xp: 30 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "bars", label: "10 barras ou australianas", xp: 35 },
-          { id: "push", label: "15 flexões", xp: 30 },
-        ],
-        "20": [
-          { id: "bars", label: "15 barras ou australianas", xp: 40 },
-          { id: "push", label: "25 flexões", xp: 40 },
-          { id: "abs", label: "25 abdominais", xp: 20 },
-        ],
-        "40": [
-          { id: "bars", label: "20 barras ou australianas", xp: 45 },
-          { id: "push", label: "35 flexões", xp: 45 },
-          { id: "abs", label: "35 abdominais", xp: 25 },
-          { id: "run", label: "Corrida 10 min", xp: 30 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "bars", label: "15 barras", xp: 45 },
-          { id: "push", label: "25 flexões", xp: 40 },
-        ],
-        "20": [
-          { id: "bars", label: "20 barras", xp: 50 },
-          { id: "push", label: "40 flexões", xp: 50 },
-          { id: "abs", label: "40 abdominais", xp: 30 },
-        ],
-        "40": [
-          { id: "bars", label: "30 barras", xp: 60 },
-          { id: "push", label: "50 flexões", xp: 55 },
-          { id: "abs", label: "50 abdominais", xp: 35 },
-          { id: "run", label: "Corrida 15 min", xp: 35 },
-        ],
-      },
-    },
-    academia: {
-      sedentario: {
-        "10": [
-          { id: "mach", label: "2 exercícios leves", xp: 30 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-        "20": [
-          { id: "mach", label: "Treino leve 20 min", xp: 45 },
-          { id: "bike", label: "Cardio 10 min", xp: 25 },
-        ],
-        "40": [
-          { id: "mach", label: "Full body 30 min", xp: 60 },
-          { id: "bike", label: "Cardio 10 min", xp: 25 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "mach", label: "Supino + puxada", xp: 40 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-        "20": [
-          { id: "mach", label: "Treino upper/lower 20 min", xp: 55 },
-          { id: "bike", label: "Cardio 10 min", xp: 25 },
-        ],
-        "40": [
-          { id: "mach", label: "Full body 30 min", xp: 70 },
-          { id: "bike", label: "Cardio 10 min", xp: 25 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "mach", label: "Superset de força", xp: 50 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-        "20": [
-          { id: "mach", label: "Treino pesado 20 min", xp: 65 },
-          { id: "bike", label: "Cardio 10 min", xp: 25 },
-        ],
-        "40": [
-          { id: "mach", label: "Treino pesado full body", xp: 80 },
-          { id: "bike", label: "Cardio 15 min", xp: 30 },
-          { id: "food", label: "Proteína em 2 refeições", xp: 25 },
-        ],
-      },
-    },
+  {
+    id: "water-general",
+    name: "General da Água",
+    description: "Conclua a missão de água em 4 dias.",
+    rewardXp: 120,
   },
-  condicionamento: {
-    casa: {
-      sedentario: {
-        "10": [
-          { id: "walk", label: "Marcha no lugar 10 min", xp: 35 },
-          { id: "breath", label: "Respiração 3 min", xp: 10 },
-        ],
-        "20": [
-          { id: "walk", label: "Cardio leve 15 min", xp: 50 },
-          { id: "sq", label: "15 agachamentos", xp: 20 },
-        ],
-        "40": [
-          { id: "walk", label: "Cardio leve 25 min", xp: 65 },
-          { id: "sq", label: "25 agachamentos", xp: 25 },
-          { id: "abs", label: "20 abdominais", xp: 20 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "cardio", label: "Circuito 10 min", xp: 45 },
-          { id: "abs", label: "20 abdominais", xp: 20 },
-        ],
-        "20": [
-          { id: "cardio", label: "Circuito 20 min", xp: 65 },
-          { id: "push", label: "15 flexões", xp: 30 },
-        ],
-        "40": [
-          { id: "cardio", label: "Circuito 30 min", xp: 80 },
-          { id: "push", label: "20 flexões", xp: 35 },
-          { id: "sq", label: "30 agachamentos", xp: 30 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "cardio", label: "HIIT 10 min", xp: 55 },
-          { id: "abs", label: "25 abdominais", xp: 25 },
-        ],
-        "20": [
-          { id: "cardio", label: "HIIT 20 min", xp: 75 },
-          { id: "push", label: "25 flexões", xp: 35 },
-        ],
-        "40": [
-          { id: "cardio", label: "HIIT 30 min", xp: 90 },
-          { id: "push", label: "30 flexões", xp: 40 },
-          { id: "sq", label: "40 agachamentos", xp: 35 },
-        ],
-      },
-    },
-    rua: {
-      sedentario: {
-        "10": [{ id: "walk", label: "Caminhada 10 min", xp: 35 }],
-        "20": [{ id: "walk", label: "Caminhada rápida 20 min", xp: 60 }],
-        "40": [{ id: "walk", label: "Caminhada/corrida 30 min", xp: 75 }],
-      },
-      iniciante: {
-        "10": [{ id: "jog", label: "Trote 10 min", xp: 45 }],
-        "20": [{ id: "jog", label: "Trote/caminhada 20 min", xp: 65 }],
-        "40": [{ id: "run", label: "Corrida 30 min", xp: 85 }],
-      },
-      intermediario: {
-        "10": [{ id: "run", label: "Corrida 10 min", xp: 55 }],
-        "20": [{ id: "run", label: "Corrida intervalada 20 min", xp: 75 }],
-        "40": [{ id: "run", label: "Corrida intervalada 35 min", xp: 95 }],
-      },
-    },
-    academia: {
-      sedentario: {
-        "10": [{ id: "bike", label: "Bike leve 10 min", xp: 35 }],
-        "20": [{ id: "bike", label: "Bike/esteira 20 min", xp: 55 }],
-        "40": [{ id: "bike", label: "Cardio 35 min", xp: 75 }],
-      },
-      iniciante: {
-        "10": [{ id: "bike", label: "Cardio 10 min", xp: 45 }],
-        "20": [{ id: "bike", label: "Cardio 20 min", xp: 65 }],
-        "40": [{ id: "bike", label: "Cardio 30 min", xp: 85 }],
-      },
-      intermediario: {
-        "10": [{ id: "bike", label: "Cardio forte 10 min", xp: 55 }],
-        "20": [{ id: "bike", label: "Cardio forte 20 min", xp: 75 }],
-        "40": [{ id: "bike", label: "Cardio forte 35 min", xp: 95 }],
-      },
-    },
+  {
+    id: "routine-beast",
+    name: "Besta da Rotina",
+    description: "Complete 2 dias perfeitos.",
+    rewardXp: 240,
   },
-  disciplina: {
-    casa: {
-      sedentario: {
-        "10": [
-          { id: "walk", label: "Caminhada 10 min", xp: 35 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada 15 min", xp: 45 },
-          { id: "push", label: "10 flexões inclinadas", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "walk", label: "Caminhada 20 min", xp: 55 },
-          { id: "push", label: "15 flexões", xp: 25 },
-          { id: "abs", label: "20 abdominais", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "push", label: "15 flexões", xp: 25 },
-          { id: "water", label: "2L+ de água", xp: 20 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada 15 min", xp: 45 },
-          { id: "push", label: "20 flexões", xp: 30 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "walk", label: "Caminhada 20 min", xp: 55 },
-          { id: "push", label: "25 flexões", xp: 35 },
-          { id: "abs", label: "25 abdominais", xp: 25 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "push", label: "20 flexões", xp: 30 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Cardio 15 min", xp: 55 },
-          { id: "push", label: "25 flexões", xp: 35 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "walk", label: "Cardio 25 min", xp: 65 },
-          { id: "push", label: "30 flexões", xp: 40 },
-          { id: "abs", label: "30 abdominais", xp: 30 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-    },
-    rua: {
-      sedentario: {
-        "10": [
-          { id: "walk", label: "Caminhada 10 min", xp: 35 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada 20 min", xp: 55 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "40": [
-          { id: "walk", label: "Caminhada 30 min", xp: 65 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "walk", label: "Caminhada rápida 10 min", xp: 40 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "walk", label: "Caminhada rápida 20 min", xp: 60 },
-          { id: "bars", label: "10 barras ou australianas", xp: 30 },
-        ],
-        "40": [
-          { id: "run", label: "Cardio 25 min", xp: 70 },
-          { id: "bars", label: "12 barras ou australianas", xp: 35 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "run", label: "Cardio 10 min", xp: 45 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "run", label: "Cardio 20 min", xp: 65 },
-          { id: "bars", label: "15 barras", xp: 40 },
-        ],
-        "40": [
-          { id: "run", label: "Cardio 30 min", xp: 80 },
-          { id: "bars", label: "20 barras", xp: 45 },
-        ],
-      },
-    },
-    academia: {
-      sedentario: {
-        "10": [
-          { id: "bike", label: "Bike 10 min", xp: 35 },
-          { id: "food", label: "Alimentação limpa", xp: 30 },
-        ],
-        "20": [
-          { id: "bike", label: "Bike 20 min", xp: 55 },
-          { id: "mach", label: "1 exercício leve", xp: 20 },
-        ],
-        "40": [
-          { id: "bike", label: "Cardio 20 min", xp: 55 },
-          { id: "mach", label: "Circuito 20 min", xp: 35 },
-        ],
-      },
-      iniciante: {
-        "10": [
-          { id: "bike", label: "Cardio 10 min", xp: 40 },
-          { id: "mach", label: "1 exercício", xp: 25 },
-        ],
-        "20": [
-          { id: "bike", label: "Cardio 15 min", xp: 55 },
-          { id: "mach", label: "2 exercícios", xp: 35 },
-        ],
-        "40": [
-          { id: "bike", label: "Cardio 20 min", xp: 65 },
-          { id: "mach", label: "Treino 20 min", xp: 45 },
-        ],
-      },
-      intermediario: {
-        "10": [
-          { id: "bike", label: "Cardio 10 min", xp: 45 },
-          { id: "mach", label: "2 exercícios", xp: 30 },
-        ],
-        "20": [
-          { id: "bike", label: "Cardio 15 min", xp: 55 },
-          { id: "mach", label: "Treino 20 min", xp: 40 },
-        ],
-        "40": [
-          { id: "bike", label: "Cardio 20 min", xp: 65 },
-          { id: "mach", label: "Treino 25 min", xp: 50 },
-        ],
-      },
-    },
+  {
+    id: "shadow-overlord",
+    name: "Monarca das Sombras",
+    description: "Alcance o level 5.",
+    rewardXp: 320,
   },
-} as const;
+  {
+    id: "discipline-lord",
+    name: "Senhor da Disciplina",
+    description: "Chegue a melhor streak 7.",
+    rewardXp: 450,
+  },
+];
 
-function playClickSound() {
-  try {
-    const AudioContextClass =
-      window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "triangle";
-    osc.frequency.value = 720;
-    gain.gain.value = 0.02;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.05);
-  } catch {}
-}
+const defaultProfile: Profile = {
+  name: "",
+  age: 25,
+  height: 1.7,
+  weight: 89,
+  goal: "emagrecer",
+  place: "casa",
+  levelType: "iniciante",
+  timeType: "20",
+  equipment: "nenhum",
+};
 
-function getBaseLevel(levelType: LevelType): "sedentario" | "iniciante" | "intermediario" {
+const defaultAttributes: Attributes = {
+  forca: 5,
+  vitalidade: 5,
+  agilidade: 5,
+  disciplina: 5,
+  mentalidade: 5,
+};
+
+function clampBaseLevel(levelType: LevelType): "sedentario" | "iniciante" | "intermediario" {
   if (levelType === "sedentario") return "sedentario";
   if (levelType === "iniciante") return "iniciante";
   return "intermediario";
 }
 
-function enhanceAdvancedMissions(
-  missions: ReadonlyArray<{ id: string; label: string; xp: number }>
-): { id: string; label: string; xp: number }[] {
-  return missions.map((mission) => ({
-    id: mission.id,
-    label:
-      mission.id === "food" || mission.id === "water"
-        ? mission.label
-        : `${mission.label} • modo avançado`,
-    xp: mission.xp + 15,
-  }));
-}
-
-function bmiTarget(height: number) {
-  const healthyUpper = 24.9 * height * height;
-  const safeTarget = Math.round((healthyUpper - 2) * 10) / 10;
-  const firstTarget = Math.round((safeTarget + 5) * 10) / 10;
-  return { firstTarget, safeTarget };
-}
-
 function buildClass(goal: Goal, place: Place) {
-  if (goal === "emagrecer") return "Caçador da Queima";
-  if (goal === "forca") return place === "rua" ? "Executor de Ferro" : "Guardião da Força";
+  if (goal === "emagrecer") return place === "rua" ? "Corredor das Sombras" : "Caçador da Queima";
+  if (goal === "forca") return place === "academia" ? "Guardião de Ferro" : "Executor Brutal";
   if (goal === "condicionamento") return "Predador Cardio";
-  return "Caçador da Disciplina";
+  return "Monge da Disciplina";
 }
 
 function buildFocus(goal: Goal) {
@@ -679,157 +144,255 @@ function buildFocus(goal: Goal) {
   return "Disciplina + consistência diária";
 }
 
-function generatePlan(profile: Profile): GeneratedPlan {
-  const baseLevel = getBaseLevel(profile.levelType);
+function bmiTarget(height: number) {
+  const healthyUpper = 24.9 * height * height;
+  const safeTarget = Math.round((healthyUpper - 2) * 10) / 10;
+  const firstTarget = Math.round((safeTarget + 5) * 10) / 10;
+  return { firstTarget, safeTarget };
+}
 
-  let missions =
-    exerciseBank[profile.goal][profile.place][baseLevel][profile.timeType] as unknown as {
-      id: string;
-      label: string;
-      xp: number;
-    }[];
+function labelGoal(goal: Goal) {
+  return goal === "emagrecer"
+    ? "Emagrecer"
+    : goal === "forca"
+    ? "Ganhar força"
+    : goal === "condicionamento"
+    ? "Condicionamento"
+    : "Disciplina";
+}
 
-  if (profile.levelType === "avancado") {
-    missions = enhanceAdvancedMissions(missions);
+function labelPlace(place: Place) {
+  return place === "casa" ? "Casa" : place === "rua" ? "Rua" : "Academia";
+}
+
+function labelLevel(levelType: LevelType) {
+  return levelType === "sedentario"
+    ? "Sedentário"
+    : levelType === "iniciante"
+    ? "Iniciante"
+    : levelType === "intermediario"
+    ? "Intermediário"
+    : "Avançado";
+}
+
+function labelEquipment(equipment: Equipment) {
+  return equipment === "nenhum"
+    ? "Nenhum"
+    : equipment === "barra"
+    ? "Barra"
+    : equipment === "halter"
+    ? "Halter"
+    : "Academia completa";
+}
+
+function createMission(
+  id: string,
+  label: string,
+  xp: number,
+  category: Mission["category"]
+): Mission {
+  return { id, label, xp, category, done: false };
+}
+
+function generateMissions(profile: Profile): Mission[] {
+  const base = clampBaseLevel(profile.levelType);
+  const intensity =
+    profile.timeType === "10" ? 1 : profile.timeType === "20" ? 2 : 3;
+  const advancedBonus = profile.levelType === "avancado" ? 15 : 0;
+
+  const missions: Mission[] = [];
+
+  if (profile.goal === "emagrecer") {
+    if (profile.place === "casa") {
+      missions.push(
+        createMission("walk", `Cardio leve ${10 * intensity} min`, 30 + intensity * 10 + advancedBonus, "cardio"),
+        createMission("sq", `${10 + intensity * 10} agachamentos`, 15 + intensity * 8 + advancedBonus, "treino"),
+        createMission("core", `${10 + intensity * 10} abdominais`, 15 + intensity * 7 + advancedBonus, "treino")
+      );
+    } else if (profile.place === "rua") {
+      missions.push(
+        createMission("walk", `Caminhada/corrida ${10 + intensity * 10} min`, 35 + intensity * 12 + advancedBonus, "cardio"),
+        createMission("stairs", `${intensity * 2} tiros curtos`, 20 + intensity * 8 + advancedBonus, "cardio")
+      );
+      if (profile.equipment === "barra") {
+        missions.push(createMission("bars", `${5 + intensity * 5} barras ou australianas`, 25 + intensity * 8 + advancedBonus, "treino"));
+      }
+    } else {
+      missions.push(
+        createMission("bike", `Esteira/Bike ${10 + intensity * 10} min`, 35 + intensity * 12 + advancedBonus, "cardio"),
+        createMission("mach", `Circuito de máquinas ${10 + intensity * 8} min`, 25 + intensity * 10 + advancedBonus, "treino")
+      );
+    }
   }
 
-  if (profile.equipment === "barra" && profile.place !== "academia") {
-    missions.push({
-      id: "barra_bonus",
-      label:
-        profile.levelType === "sedentario"
-          ? "5 barras ou australianas"
-          : profile.levelType === "iniciante"
-          ? "10 barras ou australianas"
-          : profile.levelType === "intermediario"
-          ? "15 barras"
-          : "20 barras",
-      xp: profile.levelType === "avancado" ? 50 : 35,
-    });
+  if (profile.goal === "forca") {
+    if (profile.place === "casa") {
+      missions.push(
+        createMission("push", `${10 + intensity * 10} flexões`, 20 + intensity * 10 + advancedBonus, "treino"),
+        createMission("sq", `${15 + intensity * 10} agachamentos`, 18 + intensity * 8 + advancedBonus, "treino"),
+        createMission("core", `${10 + intensity * 10} abdominais`, 15 + intensity * 8 + advancedBonus, "treino")
+      );
+    } else if (profile.place === "rua") {
+      missions.push(
+        createMission("bars", `${5 + intensity * 5} barras ou australianas`, 25 + intensity * 10 + advancedBonus, "treino"),
+        createMission("push", `${10 + intensity * 10} flexões`, 20 + intensity * 8 + advancedBonus, "treino")
+      );
+    } else {
+      missions.push(
+        createMission("mach", `Treino de força ${10 + intensity * 10} min`, 30 + intensity * 10 + advancedBonus, "treino"),
+        createMission("bike", `Cardio curto ${5 + intensity * 5} min`, 15 + intensity * 6 + advancedBonus, "cardio")
+      );
+    }
   }
 
-  if (profile.equipment === "halter") {
-    missions.push({
-      id: "halter_bonus",
-      label:
-        profile.levelType === "sedentario"
-          ? "Rosca/ombro leve com halter"
-          : profile.levelType === "avancado"
-          ? "Circuito pesado com halter"
-          : "Circuito com halter",
-      xp: profile.levelType === "avancado" ? 45 : 30,
-    });
+  if (profile.goal === "condicionamento") {
+    if (profile.place === "casa") {
+      missions.push(
+        createMission("cardio", `Circuito/HIIT ${10 + intensity * 10} min`, 30 + intensity * 12 + advancedBonus, "cardio"),
+        createMission("mob", `Mobilidade ${5 + intensity * 3} min`, 12 + intensity * 5 + advancedBonus, "treino")
+      );
+    } else if (profile.place === "rua") {
+      missions.push(
+        createMission("run", `Corrida ${10 + intensity * 10} min`, 35 + intensity * 12 + advancedBonus, "cardio"),
+        createMission("pace", `Ritmo forte por ${3 + intensity * 2} blocos`, 18 + intensity * 8 + advancedBonus, "cardio")
+      );
+    } else {
+      missions.push(
+        createMission("bike", `Cardio forte ${10 + intensity * 10} min`, 35 + intensity * 12 + advancedBonus, "cardio"),
+        createMission("mach", `Circuito funcional ${10 + intensity * 8} min`, 22 + intensity * 8 + advancedBonus, "treino")
+      );
+    }
   }
 
-  if (!missions.some((m) => m.id === "water")) {
-    missions.push({ id: "water", label: "2L+ de água", xp: 20 });
+  if (profile.goal === "disciplina") {
+    missions.push(
+      createMission("walk", `Movimento diário ${10 + intensity * 5} min`, 20 + intensity * 8 + advancedBonus, "cardio"),
+      createMission("ritual", "Arrumar cama / ritual matinal", 15 + advancedBonus, "habito"),
+      createMission("focus", "10 min sem distração", 15 + intensity * 3 + advancedBonus, "habito")
+    );
   }
 
-  if (!missions.some((m) => m.id === "food")) {
-    missions.push({
-      id: "food",
-      label: profile.goal === "forca" ? "Proteína em 2 refeições" : "Alimentação limpa",
-      xp: 30,
-    });
+  if (profile.equipment === "halter" && profile.place !== "academia") {
+    missions.push(createMission("halter", `Circuito com halter ${5 + intensity * 5} min`, 20 + intensity * 8 + advancedBonus, "treino"));
   }
 
-  const { firstTarget, safeTarget } = bmiTarget(profile.height);
-  const targetWeight =
-    profile.goal === "forca"
-      ? `${Math.max(profile.weight - 3, Math.round(firstTarget))}kg primeiro, depois recomposição`
-      : `${Math.min(profile.weight - 3, firstTarget)}kg primeiro, meta saudável ${safeTarget}kg`;
+  if (base === "sedentario" && !missions.some((m) => m.id === "walk")) {
+    missions.unshift(createMission("walk", "Caminhada leve 10 min", 25, "cardio"));
+  }
 
+  missions.push(
+    createMission("water", "2L+ de água", 20, "habito"),
+    createMission(
+      "food",
+      profile.goal === "forca" ? "Proteína em 2 refeições" : "Alimentação limpa",
+      30,
+      "habito"
+    )
+  );
+
+  return missions;
+}
+
+function generateDungeon(profile: Profile) {
+  const intensity = profile.timeType === "10" ? 1 : profile.timeType === "20" ? 2 : 3;
+  if (profile.goal === "forca") {
+    return {
+      name: "Dungeon Rank C",
+      objective: `${20 + intensity * 15} flexões + ${20 + intensity * 15} agachamentos + ${10 + intensity * 10} abdominais`,
+      reward: 220,
+    };
+  }
+  if (profile.goal === "condicionamento") {
+    return {
+      name: "Dungeon Rank C",
+      objective: `${15 + intensity * 10} min de cardio contínuo + ${intensity * 3} blocos fortes`,
+      reward: 220,
+    };
+  }
+  if (profile.goal === "disciplina") {
+    return {
+      name: "Dungeon Rank C",
+      objective: `3 hábitos completos + ${10 + intensity * 5} min de movimento`,
+      reward: 220,
+    };
+  }
   return {
-    className: buildClass(profile.goal, profile.place),
-    focus: buildFocus(profile.goal),
-    targetWeight,
-    missions,
+    name: "Dungeon Rank C",
+    objective: `${15 + intensity * 10} min de cardio + ${15 + intensity * 10} agachamentos + alimentação limpa`,
+    reward: 220,
   };
 }
 
-function defaultBosses(): Boss[] {
-  return [
-    {
-      name: "Rei da Preguiça",
-      description: "Complete 3 dias seguidos de treino.",
-      rewardXp: 180,
-      done: false,
-    },
-    {
-      name: "General da Água",
-      description: "Conclua a missão de água em 4 dias.",
-      rewardXp: 120,
-      done: false,
-    },
-    {
-      name: "Besta da Rotina",
-      description: "Complete um dia perfeito na semana.",
-      rewardXp: 240,
-      done: false,
-    },
-  ];
+function getRank(level: number) {
+  if (level >= 15) return "S";
+  if (level >= 11) return "A";
+  if (level >= 7) return "B";
+  if (level >= 4) return "C";
+  if (level >= 2) return "D";
+  return "E";
 }
 
-export default function SoloUpV6() {
+export default function SoloUpV8() {
   const [screen, setScreen] = useState<"welcome" | "onboarding" | "system">("welcome");
   const [currentStep, setCurrentStep] = useState(0);
-  const [profile, setProfile] = useState<Profile>({
-    name: "",
-    age: 25,
-    height: 1.7,
-    weight: 89,
-    goal: "emagrecer",
-    place: "casa",
-    levelType: "iniciante",
-    timeType: "20",
-    equipment: "nenhum",
-  });
-  const [plan, setPlan] = useState<GeneratedPlan | null>(null);
+  const [profile, setProfile] = useState<Profile>(defaultProfile);
+  const [missions, setMissions] = useState<Mission[]>([]);
   const [xp, setXp] = useState(0);
   const [level, setLevel] = useState(1);
   const [streak, setStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
+  const [waterDays, setWaterDays] = useState(0);
+  const [perfectDays, setPerfectDays] = useState(0);
+  const [bossesDone, setBossesDone] = useState<string[]>([]);
+  const [attributes, setAttributes] = useState<Attributes>(defaultAttributes);
   const [attributePoints, setAttributePoints] = useState(0);
-  const [attributes, setAttributes] = useState<Attributes>({
-    forca: 5,
-    vitalidade: 5,
-    agilidade: 5,
-    disciplina: 5,
-  });
-  const [missions, setMissions] = useState<Mission[]>([]);
   const [history, setHistory] = useState<{ day: string; xp: number; perfect: boolean }[]>([]);
   const [typedQuestion, setTypedQuestion] = useState("");
   const [showArise, setShowArise] = useState(false);
-  const [bosses, setBosses] = useState<Boss[]>(defaultBosses());
   const [warning, setWarning] = useState("");
-  const [shareMessage, setShareMessage] = useState("");
-  const [waterDays, setWaterDays] = useState(0);
   const [toast, setToast] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
+  const [musicOn, setMusicOn] = useState(false);
 
-  const rank = useMemo(() => {
-    if (level >= 15) return "S";
-    if (level >= 11) return "A";
-    if (level >= 7) return "B";
-    if (level >= 4) return "C";
-    if (level >= 2) return "D";
-    return "E";
-  }, [level]);
+  const audioRef = useRef<AudioContext | null>(null);
+  const musicTimerRef = useRef<number | null>(null);
 
-  const totalToday = useMemo(() => {
-    const total = missions.reduce((sum, m) => sum + (m.done ? m.xp : 0), 0);
-    return missions.length > 0 && missions.every((m) => m.done) ? total + 100 : total;
-  }, [missions]);
+  const rank = useMemo(() => getRank(level), [level]);
+  const dungeon = useMemo(() => generateDungeon(profile), [profile]);
 
-  const perfectDay = missions.length > 0 && missions.every((m) => m.done);
+  const currentClass = useMemo(() => buildClass(profile.goal, profile.place), [profile]);
+  const currentFocus = useMemo(() => buildFocus(profile.goal), [profile]);
 
-  const bmi = useMemo(() => profile.weight / (profile.height * profile.height), [profile.height, profile.weight]);
-
+  const bmi = useMemo(() => profile.weight / (profile.height * profile.height), [profile]);
   const bmiLabel = useMemo(() => {
     if (bmi < 18.5) return "Abaixo do peso";
     if (bmi < 25) return "Saudável";
     if (bmi < 30) return "Sobrepeso";
     return "Obesidade";
   }, [bmi]);
+
+  const targetWeight = useMemo(() => {
+    const { firstTarget, safeTarget } = bmiTarget(profile.height);
+    return profile.goal === "forca"
+      ? `${Math.max(profile.weight - 3, Math.round(firstTarget))}kg primeiro, depois recomposição`
+      : `${Math.min(profile.weight - 3, firstTarget)}kg primeiro, meta saudável ${safeTarget}kg`;
+  }, [profile.height, profile.weight, profile.goal]);
+
+  const totalToday = useMemo(() => {
+    const total = missions.reduce((sum, m) => sum + (m.done ? m.xp : 0), 0);
+    return missions.length > 0 && missions.every((m) => m.done) ? total + 100 : total;
+  }, [missions]);
+
+  const dailyProgress = useMemo(() => {
+    if (missions.length === 0) return 0;
+    const done = missions.filter((m) => m.done).length;
+    return Math.round((done / missions.length) * 100);
+  }, [missions]);
+
+  const perfectDay = useMemo(
+    () => missions.length > 0 && missions.every((m) => m.done),
+    [missions]
+  );
 
   const streakBonus = useMemo(() => {
     if (streak >= 30) return 700;
@@ -853,79 +416,76 @@ export default function SoloUpV6() {
       ironLung: attributes.vitalidade >= 8,
       shadowStep: attributes.agilidade >= 8,
       monarchMind: attributes.disciplina >= 8,
+      abyssMind: attributes.mentalidade >= 8,
       eliteHunter: level >= 10,
     };
   }, [attributes, level]);
 
   const bossProgress = useMemo(() => {
-    const waterProgress = Math.min((waterDays / 4) * 100, 100);
-    const streakProgress = Math.min((streak / 3) * 100, 100);
-    const perfectProgress = history.some((h) => h.perfect) ? 100 : 0;
     return {
-      "Rei da Preguiça": streakProgress,
-      "General da Água": waterProgress,
-      "Besta da Rotina": perfectProgress,
-    } as Record<string, number>;
-  }, [streak, waterDays, history]);
+      "lazy-king": Math.min((streak / 3) * 100, 100),
+      "water-general": Math.min((waterDays / 4) * 100, 100),
+      "routine-beast": Math.min((perfectDays / 2) * 100, 100),
+      "shadow-overlord": Math.min((level / 5) * 100, 100),
+      "discipline-lord": Math.min((bestStreak / 7) * 100, 100),
+    };
+  }, [streak, waterDays, perfectDays, level, bestStreak]);
 
   useEffect(() => {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return;
     try {
-      const saved = JSON.parse(raw);
+      const saved: SaveData = JSON.parse(raw);
       setScreen(saved.screen ?? "welcome");
       setCurrentStep(saved.currentStep ?? 0);
-      setProfile(saved.profile ?? profile);
-      setPlan(saved.plan ?? null);
+      setProfile(saved.profile ?? defaultProfile);
+      setMissions(saved.missions ?? []);
       setXp(saved.xp ?? 0);
       setLevel(saved.level ?? 1);
       setStreak(saved.streak ?? 0);
       setBestStreak(saved.bestStreak ?? 0);
-      setAttributePoints(saved.attributePoints ?? 0);
-      setAttributes(saved.attributes ?? { forca: 5, vitalidade: 5, agilidade: 5, disciplina: 5 });
-      setMissions(saved.missions ?? []);
-      setHistory(saved.history ?? []);
-      setBosses(saved.bosses ?? defaultBosses());
       setWaterDays(saved.waterDays ?? 0);
+      setPerfectDays(saved.perfectDays ?? 0);
+      setBossesDone(saved.bossesDone ?? []);
+      setAttributes(saved.attributes ?? defaultAttributes);
+      setAttributePoints(saved.attributePoints ?? 0);
+      setHistory(saved.history ?? []);
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      SAVE_KEY,
-      JSON.stringify({
-        screen,
-        currentStep,
-        profile,
-        plan,
-        xp,
-        level,
-        streak,
-        bestStreak,
-        attributePoints,
-        attributes,
-        missions,
-        history,
-        bosses,
-        waterDays,
-      })
-    );
+    const save: SaveData = {
+      screen,
+      currentStep,
+      profile,
+      missions,
+      xp,
+      level,
+      streak,
+      bestStreak,
+      waterDays,
+      perfectDays,
+      bossesDone,
+      attributes,
+      attributePoints,
+      history,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   }, [
     screen,
     currentStep,
     profile,
-    plan,
+    missions,
     xp,
     level,
     streak,
     bestStreak,
-    attributePoints,
-    attributes,
-    missions,
-    history,
-    bosses,
     waterDays,
+    perfectDays,
+    bossesDone,
+    attributes,
+    attributePoints,
+    history,
   ]);
 
   useEffect(() => {
@@ -942,20 +502,139 @@ export default function SoloUpV6() {
       timeType: "Quanto tempo por dia você consegue treinar?",
       equipment: "Qual equipamento você tem disponível?",
     };
+
     const full = textMap[stepKey];
     setTypedQuestion("");
     let i = 0;
-    const timer = setInterval(() => {
+    const timer = window.setInterval(() => {
       i += 1;
       setTypedQuestion(full.slice(0, i));
-      if (i >= full.length) clearInterval(timer);
+      if (i >= full.length) window.clearInterval(timer);
     }, 18);
-    return () => clearInterval(timer);
+
+    return () => window.clearInterval(timer);
   }, [screen, currentStep, profile.name]);
+
+  useEffect(() => {
+    return () => stopMusic();
+  }, []);
 
   function showToast(text: string) {
     setToast(text);
-    setTimeout(() => setToast(""), 2200);
+    window.setTimeout(() => setToast(""), 2200);
+  }
+
+  function playClickSound() {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = 720;
+      gain.gain.value = 0.02;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.05);
+    } catch {}
+  }
+
+  function playLevelUpSound() {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const notes = [440, 660, 880, 1040];
+      notes.forEach((note, index) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.value = note;
+        gain.gain.value = 0.03;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        const startAt = ctx.currentTime + index * 0.08;
+        osc.start(startAt);
+        osc.stop(startAt + 0.16);
+      });
+    } catch {}
+  }
+
+  function startMusic() {
+    try {
+      if (audioRef.current) return;
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+
+      const ctx = new AudioContextClass();
+      audioRef.current = ctx;
+
+      const playAmbientPulse = () => {
+        if (!audioRef.current) return;
+        const now = audioRef.current.currentTime;
+
+        const base = audioRef.current.createOscillator();
+        const high = audioRef.current.createOscillator();
+        const gainA = audioRef.current.createGain();
+        const gainB = audioRef.current.createGain();
+
+        base.type = "sine";
+        high.type = "triangle";
+
+        base.frequency.value = 110;
+        high.frequency.value = 220;
+
+        gainA.gain.setValueAtTime(0.0001, now);
+        gainA.gain.exponentialRampToValueAtTime(0.015, now + 0.6);
+        gainA.gain.exponentialRampToValueAtTime(0.0001, now + 3.8);
+
+        gainB.gain.setValueAtTime(0.0001, now);
+        gainB.gain.exponentialRampToValueAtTime(0.008, now + 0.4);
+        gainB.gain.exponentialRampToValueAtTime(0.0001, now + 2.5);
+
+        base.connect(gainA);
+        high.connect(gainB);
+        gainA.connect(audioRef.current.destination);
+        gainB.connect(audioRef.current.destination);
+
+        base.start(now);
+        high.start(now + 0.15);
+        base.stop(now + 4);
+        high.stop(now + 3);
+      };
+
+      playAmbientPulse();
+      musicTimerRef.current = window.setInterval(playAmbientPulse, 3500);
+    } catch {}
+  }
+
+  function stopMusic() {
+    if (musicTimerRef.current) {
+      window.clearInterval(musicTimerRef.current);
+      musicTimerRef.current = null;
+    }
+    if (audioRef.current) {
+      audioRef.current.close();
+      audioRef.current = null;
+    }
+  }
+
+  function toggleMusic() {
+    playClickSound();
+    setMusicOn((prev) => {
+      const next = !prev;
+      if (next) startMusic();
+      else stopMusic();
+      return next;
+    });
   }
 
   function click(action?: () => void) {
@@ -972,11 +651,10 @@ export default function SoloUpV6() {
       setCurrentStep((prev) => prev + 1);
       return;
     }
-    const generated = generatePlan(profile);
-    setPlan(generated);
-    setMissions(generated.missions.map((m) => ({ ...m, done: false })));
+    const generated = generateMissions(profile);
+    setMissions(generated);
     setShowArise(true);
-    setTimeout(() => {
+    window.setTimeout(() => {
       setShowArise(false);
       setScreen("system");
     }, 1200);
@@ -1002,43 +680,78 @@ export default function SoloUpV6() {
     }
 
     setWarning("");
-    const waterDone = missions.some((m) => m.id === "water" && m.done);
-    const totalXp = xp + totalToday + streakBonus;
-    const levelGain = Math.floor(totalXp / 100);
-    const nextXp = totalXp % 100;
 
-    if (levelGain > 0) {
-      setLevel((prev) => prev + levelGain);
-      setAttributePoints((prev) => prev + levelGain * 3);
+    const waterDone = missions.some((m) => m.id === "water" && m.done);
+    const gainedTotal = totalToday + streakBonus;
+    const accumulatedXp = xp + gainedTotal;
+
+    let newLevel = level;
+    let newXp = accumulatedXp;
+    let gainedLevels = 0;
+
+    while (newXp >= 100) {
+      newXp -= 100;
+      newLevel += 1;
+      gainedLevels += 1;
+    }
+
+    setXp(newXp);
+    if (gainedLevels > 0) {
+      setLevel(newLevel);
+      setAttributePoints((prev) => prev + gainedLevels * 3);
+      playLevelUpSound();
       showToast("LEVEL UP ⚡");
     } else {
       showToast("QUEST COMPLETE ✅");
     }
 
-    setXp(nextXp);
-
     const newStreak = streak + 1;
     setStreak(newStreak);
     setBestStreak((prev) => Math.max(prev, newStreak));
+
     if (waterDone) setWaterDays((prev) => prev + 1);
+    if (perfectDay) setPerfectDays((prev) => prev + 1);
 
     setHistory((prev) => [
-      { day: new Date().toLocaleDateString("pt-BR"), xp: totalToday + streakBonus, perfect: perfectDay },
+      {
+        day: new Date().toLocaleDateString("pt-BR"),
+        xp: gainedTotal,
+        perfect: perfectDay,
+      },
       ...prev,
     ]);
 
-    setBosses((prev) =>
-      prev.map((boss) => {
-        if (boss.done) return boss;
-        if (boss.name === "Rei da Preguiça" && newStreak >= 3) return { ...boss, done: true };
-        if (boss.name === "General da Água" && (waterDone ? waterDays + 1 : waterDays) >= 4)
-          return { ...boss, done: true };
-        if (boss.name === "Besta da Rotina" && perfectDay) return { ...boss, done: true };
-        return boss;
-      })
-    );
+    const newlyCompleted = allBosses
+      .filter((boss) => !bossesDone.includes(boss.id))
+      .filter((boss) => {
+        if (boss.id === "lazy-king") return newStreak >= 3;
+        if (boss.id === "water-general") return (waterDone ? waterDays + 1 : waterDays) >= 4;
+        if (boss.id === "routine-beast") return (perfectDay ? perfectDays + 1 : perfectDays) >= 2;
+        if (boss.id === "shadow-overlord") return newLevel >= 5;
+        if (boss.id === "discipline-lord") return Math.max(bestStreak, newStreak) >= 7;
+        return false;
+      });
 
-    setMissions((prev) => prev.map((m) => ({ ...m, done: false })));
+    if (newlyCompleted.length > 0) {
+      const reward = newlyCompleted.reduce((sum, b) => sum + b.rewardXp, 0);
+      setBossesDone((prev) => [...prev, ...newlyCompleted.map((b) => b.id)]);
+      setXp((prev) => {
+        let total = prev + reward;
+        let lvl = newLevel;
+        let points = 0;
+        while (total >= 100) {
+          total -= 100;
+          lvl += 1;
+          points += 3;
+        }
+        if (lvl !== newLevel) setLevel(lvl);
+        if (points > 0) setAttributePoints((p) => p + points);
+        return total;
+      });
+      showToast("BOSS DERROTADO 👑");
+    }
+
+    setMissions(generateMissions(profile));
   }
 
   function failDay() {
@@ -1047,7 +760,9 @@ export default function SoloUpV6() {
     setXp((prev) => Math.max(0, prev - 20));
     setMissions((prev) =>
       prev.map((m, idx) =>
-        idx === 0 ? { ...m, label: `${m.label} + recuperação extra`, done: false } : { ...m, done: false }
+        idx === 0
+          ? { ...m, label: `${m.label} + recuperação extra`, done: false }
+          : { ...m, done: false }
       )
     );
   }
@@ -1055,20 +770,21 @@ export default function SoloUpV6() {
   async function shareBuild() {
     const text = `SOLOUP BUILD
 Nome: ${profile.name}
-Classe: ${plan?.className ?? "-"}
+Classe: ${currentClass}
 Rank: ${rank}
 Level: ${level}
-Foco: ${plan?.focus ?? "-"}
-Meta: ${plan?.targetWeight ?? "-"}
-Atributos -> Força ${attributes.forca} | Vitalidade ${attributes.vitalidade} | Agilidade ${attributes.agilidade} | Disciplina ${attributes.disciplina}
+Foco: ${currentFocus}
+Meta: ${targetWeight}
+Atributos -> Força ${attributes.forca} | Vitalidade ${attributes.vitalidade} | Agilidade ${attributes.agilidade} | Disciplina ${attributes.disciplina} | Mentalidade ${attributes.mentalidade}
 Dificuldade semanal: ${weeklyDifficulty}`;
+
     try {
       await navigator.clipboard.writeText(text);
       setShareMessage("Build copiada.");
-      setTimeout(() => setShareMessage(""), 2000);
+      window.setTimeout(() => setShareMessage(""), 2000);
     } catch {
       setShareMessage("Não foi possível copiar.");
-      setTimeout(() => setShareMessage(""), 2000);
+      window.setTimeout(() => setShareMessage(""), 2000);
     }
   }
 
@@ -1086,11 +802,23 @@ Dificuldade semanal: ${weeklyDifficulty}`;
           <p style={miniLabel}>SOLOUP SYSTEM</p>
           <h1 style={heroTitle}>Desperte.</h1>
           <p style={heroText}>
-            O sistema fitness inspirado em Solo Leveling. Crie seu personagem, receba um plano automático e suba de rank na vida real.
+            O sistema fitness inspirado em Solo Leveling. Crie seu personagem,
+            receba um plano automático e evolua na vida real.
           </p>
-          <button style={primaryButton} onClick={() => click(() => setScreen("onboarding"))}>
-            Criar personagem
-          </button>
+          <div style={buttonRow}>
+            <button style={primaryButton} onClick={() => click(() => setScreen("onboarding"))}>
+              Criar personagem
+            </button>
+            <button style={secondaryButton} onClick={toggleMusic}>
+              {musicOn ? "Parar trilha" : "Tocar trilha"}
+            </button>
+          </div>
+          <div style={box}>
+            <p style={mutedTitle}>Trilha do sistema</p>
+            <p style={mutedText}>
+              A música ambiente é gerada pelo próprio app via WebAudio. Não depende de faixa externa.
+            </p>
+          </div>
         </section>
       </main>
     );
@@ -1098,6 +826,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
 
   if (screen === "onboarding") {
     const stepKey = questionOrder[currentStep];
+
     return (
       <main style={welcomeMain}>
         <SystemBG />
@@ -1189,7 +918,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             {currentStep === questionOrder.length - 1 ? "Gerar sistema" : "Próximo"}
           </button>
         </section>
-        {showArise && <Arise />}
+        {showArise ? <Arise /> : null}
       </main>
     );
   }
@@ -1203,10 +932,15 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             <p style={miniLabel}>SOLOUP FITNESS</p>
             <h1 style={heroTitleSmall}>Bem-vindo, {profile.name}</h1>
             <p style={heroTextSmall}>
-              {plan?.className} • {plan?.focus}
+              {currentClass} • {currentFocus}
             </p>
           </div>
-          <div style={rankBadge}>Rank {rank}</div>
+          <div style={heroActions}>
+            <button style={miniButton} onClick={toggleMusic}>
+              {musicOn ? "Parar trilha" : "Trilha"}
+            </button>
+            <div style={rankBadge}>Rank {rank}</div>
+          </div>
         </section>
 
         {toast ? <div style={toastBox}>{toast}</div> : null}
@@ -1227,9 +961,9 @@ Dificuldade semanal: ${weeklyDifficulty}`;
         </section>
 
         <Panel title="Perfil gerado pelo sistema">
-          <InfoLine label="Classe" value={plan?.className ?? "-"} />
-          <InfoLine label="Foco" value={plan?.focus ?? "-"} />
-          <InfoLine label="Meta inicial" value={plan?.targetWeight ?? "-"} />
+          <InfoLine label="Classe" value={currentClass} />
+          <InfoLine label="Foco" value={currentFocus} />
+          <InfoLine label="Meta inicial" value={targetWeight} />
           <InfoLine label="Altura / Peso" value={`${profile.height.toFixed(2)}m / ${profile.weight}kg`} />
           <InfoLine label="Objetivo" value={labelGoal(profile.goal)} />
           <InfoLine label="Local" value={labelPlace(profile.place)} />
@@ -1241,29 +975,44 @@ Dificuldade semanal: ${weeklyDifficulty}`;
 
         <section style={twoCol}>
           <Panel title="Treinos e missões do dia">
+            <div style={progressWrap}>
+              <div style={progressLabelRow}>
+                <span>Progresso diário</span>
+                <strong>{dailyProgress}%</strong>
+              </div>
+              <div style={hpOuter}>
+                <div style={{ ...hpInner, width: `${dailyProgress}%` }} />
+              </div>
+            </div>
+
             {missions.map((mission) => (
               <QuestRow
                 key={mission.id}
                 label={mission.label}
                 xp={mission.xp}
                 checked={mission.done}
+                category={mission.category}
                 onClick={() => click(() => toggleMission(mission.id))}
               />
             ))}
+
             <div style={box}>
               <p style={mutedTitle}>Como usar</p>
               <p style={mutedText}>
                 Cada linha abaixo é um treino ou missão do dia. Clique em <strong>Feito</strong> quando concluir. Se marcou errado, clique em <strong>Desfazer</strong>.
               </p>
             </div>
+
             <div style={footerRow}>
               <span>XP hoje</span>
               <strong>{totalToday}</strong>
             </div>
+
             <div style={footerRow}>
               <span>Bônus de streak</span>
               <strong>+{streakBonus}</strong>
             </div>
+
             <div style={buttonRow}>
               <button style={primaryButton} onClick={() => click(concludeDay)}>
                 Concluir dia
@@ -1279,44 +1028,46 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             <AttributeRow label="Vitalidade" value={attributes.vitalidade} onAdd={() => click(() => addAttribute("vitalidade"))} disabled={attributePoints <= 0} />
             <AttributeRow label="Agilidade" value={attributes.agilidade} onAdd={() => click(() => addAttribute("agilidade"))} disabled={attributePoints <= 0} />
             <AttributeRow label="Disciplina" value={attributes.disciplina} onAdd={() => click(() => addAttribute("disciplina"))} disabled={attributePoints <= 0} />
+            <AttributeRow label="Mentalidade" value={attributes.mentalidade} onAdd={() => click(() => addAttribute("mentalidade"))} disabled={attributePoints <= 0} />
+
             <div style={box}>
               <p style={mutedTitle}>Efeito dos atributos</p>
               <p style={mutedText}>
-                Força melhora sua build de treino, Vitalidade reforça fôlego e recuperação, Agilidade favorece cardio, Disciplina fortalece streak e reduz o impacto das falhas.
+                Força melhora sua build física, Vitalidade reforça recuperação e cardio, Agilidade favorece ritmo e mobilidade, Disciplina fortalece streak, Mentalidade representa resistência mental e foco.
               </p>
             </div>
           </Panel>
         </section>
 
         <section style={twoCol}>
-         <Panel title="Boss semanal e guia TESTE 123">
+          <Panel title="Boss semanal e guia">
             <div style={box}>
               <p style={mutedTitle}>Como derrotar os bosses</p>
               <p style={mutedText}>
-                Rei da Preguiça: mantenha 3 dias seguidos. General da Água: conclua a missão de água em 4 dias. Besta da Rotina: feche um dia perfeito com todas as quests marcadas.
+                Mantenha streaks, complete hábitos, feche dias perfeitos e suba de nível. Cada boss exige um tipo de evolução.
               </p>
             </div>
-            {bosses.map((boss, index) => (
-              <div key={`${boss.name}-${index}`} style={bossRow}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{boss.name}</div>
-                  <div style={smallHint}>{boss.description}</div>
-                  <div style={hpOuter}>
-                    <div
-                      style={{
-                        ...hpInner,
-                        width: `${boss.done ? 100 : bossProgress[boss.name] ?? 0}%`,
-                      }}
-                    />
+
+            {allBosses.map((boss) => {
+              const done = bossesDone.includes(boss.id);
+              const progress = done ? 100 : bossProgress[boss.id] ?? 0;
+              return (
+                <div key={boss.id} style={bossRow}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700 }}>{boss.name}</div>
+                    <div style={smallHint}>{boss.description}</div>
+                    <div style={hpOuter}>
+                      <div style={{ ...hpInner, width: `${progress}%` }} />
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: done ? "#4ade80" : "#67e8f9", fontWeight: 700 }}>
+                      {done ? "Derrotado" : `+${boss.rewardXp} XP`}
+                    </div>
                   </div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ color: boss.done ? "#4ade80" : "#67e8f9", fontWeight: 700 }}>
-                    {boss.done ? "Derrotado" : `+${boss.rewardXp} XP`}
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </Panel>
 
           <Panel title="Diretiva do sistema">
@@ -1327,16 +1078,67 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               </p>
             </div>
             <div style={box}>
-              <p style={mutedTitle}>Recompensas</p>
+              <p style={mutedTitle}>Recompensa</p>
               <p style={mutedText}>
-                Dias perfeitos rendem mais EXP. Manter streaks libera bônus progressivos e ajuda a derrotar bosses semanais.
+                Dias perfeitos rendem mais EXP. Streaks aumentam bônus. Bosses trazem picos grandes de evolução.
               </p>
             </div>
             <div style={box}>
               <p style={mutedTitle}>Penalidade</p>
               <p style={mutedText}>
-                Falhar zera o streak atual, reduz XP e pode gerar missão de recuperação. O sistema recompensa constância, não perfeição absoluta.
+                Falhar quebra streak e reduz XP. O sistema pune a inércia, mas recompensa retorno rápido.
               </p>
+            </div>
+          </Panel>
+        </section>
+
+        <section style={twoCol}>
+          <Panel title="Dungeon semanal">
+            <div style={box}>
+              <p style={mutedTitle}>{dungeon.name}</p>
+              <p style={mutedText}>{dungeon.objective}</p>
+              <p style={{ ...mutedText, marginTop: 10 }}>
+                Recompensa: <strong>+{dungeon.reward} XP</strong>
+              </p>
+            </div>
+            <button
+              style={primaryButton}
+              onClick={() => {
+                click(() => {
+                  setXp((prev) => {
+                    let total = prev + dungeon.reward;
+                    let gainedLevels = 0;
+                    while (total >= 100) {
+                      total -= 100;
+                      gainedLevels += 1;
+                    }
+                    if (gainedLevels > 0) {
+                      setLevel((l) => l + gainedLevels);
+                      setAttributePoints((p) => p + gainedLevels * 3);
+                      playLevelUpSound();
+                    }
+                    showToast("DUNGEON CLEAR 🗝️");
+                    return total;
+                  });
+                });
+              }}
+            >
+              Concluir dungeon
+            </button>
+          </Panel>
+
+          <Panel title="Guia de dicas">
+            <div style={box}>
+              <p style={mutedTitle}>1. Foque em consistência</p>
+              <p style={mutedText}>É melhor 20 minutos todos os dias do que 2 horas uma vez e sumir por uma semana.</p>
+            </div>
+            <div style={box}>
+              <p style={mutedTitle}>2. Não marque falso positivo</p>
+              <p style={mutedText}>O sistema só funciona se você respeitar a própria evolução.</p>
+            </div>
+            <div style={box}>
+              <p style={mutedTitle}>3. Água e sono importam</p>
+              <p style={mutedText}>Sem água e descanso, até o melhor treino perde impacto.</p>
             </div>
           </Panel>
         </section>
@@ -1346,15 +1148,17 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             <div style={box}>
               <p style={mutedTitle}>Dificuldade semanal</p>
               <p style={mutedText}>
-                Estado atual do sistema: <strong>{weeklyDifficulty}</strong>. Quanto mais dias perfeitos e streak, mais o SoloUp vai endurecendo sua jornada.
+                Estado atual do sistema: <strong>{weeklyDifficulty}</strong>. Quanto mais dias perfeitos e streak, mais duro o sistema te trata.
               </p>
             </div>
+
             <div style={skillGrid}>
-              <SkillCard title="Brute Force" unlocked={unlockedSkills.bruteForce} description="Desbloqueado com Força 8. Representa evolução de treino funcional." />
-              <SkillCard title="Iron Lung" unlocked={unlockedSkills.ironLung} description="Desbloqueado com Vitalidade 8. Marca seu avanço em cardio e recuperação." />
-              <SkillCard title="Shadow Step" unlocked={unlockedSkills.shadowStep} description="Desbloqueado com Agilidade 8. Indica melhora de velocidade e mobilidade." />
-              <SkillCard title="Monarch Mind" unlocked={unlockedSkills.monarchMind} description="Desbloqueado com Disciplina 8. Simboliza constância acima da média." />
-              <SkillCard title="Elite Hunter" unlocked={unlockedSkills.eliteHunter} description="Desbloqueado no level 10. Seu primeiro marco de jogador sério." />
+              <SkillCard title="Brute Force" unlocked={unlockedSkills.bruteForce} description="Desbloqueado com Força 8. Evolução de treino bruto." />
+              <SkillCard title="Iron Lung" unlocked={unlockedSkills.ironLung} description="Desbloqueado com Vitalidade 8. Melhor cardio e recuperação." />
+              <SkillCard title="Shadow Step" unlocked={unlockedSkills.shadowStep} description="Desbloqueado com Agilidade 8. Velocidade e mobilidade." />
+              <SkillCard title="Monarch Mind" unlocked={unlockedSkills.monarchMind} description="Desbloqueado com Disciplina 8. Consistência acima da média." />
+              <SkillCard title="Abyss Mind" unlocked={unlockedSkills.abyssMind} description="Desbloqueado com Mentalidade 8. Resistência mental elevada." />
+              <SkillCard title="Elite Hunter" unlocked={unlockedSkills.eliteHunter} description="Desbloqueado no level 10. Marco de jogador sério." />
             </div>
           </Panel>
 
@@ -1362,12 +1166,13 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             <div style={box}>
               <p style={mutedTitle}>Resumo social</p>
               <p style={mutedText}>
-                Copie sua build e mande para amigos. Isso já prepara o SoloUp para um futuro ranking e comparação de rotinas.
+                Copie sua build e mande para amigos. Isso já prepara o SoloUp para ranking e comparação futuramente.
               </p>
             </div>
+
             <div style={infoLine}>
               <span style={mutedText}>Classe</span>
-              <strong>{plan?.className ?? "-"}</strong>
+              <strong>{currentClass}</strong>
             </div>
             <div style={infoLine}>
               <span style={mutedText}>Rank / Level</span>
@@ -1383,12 +1188,35 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               <span style={mutedText}>Melhor streak</span>
               <strong>{bestStreak}</strong>
             </div>
+
             <button style={primaryButton} onClick={() => click(shareBuild)}>
               Copiar minha build
             </button>
+
             {shareMessage ? <p style={{ ...mutedText, marginTop: 10 }}>{shareMessage}</p> : null}
           </Panel>
         </section>
+
+        <Panel title="Próximas atualizações do SoloUp">
+          <div style={twoCol}>
+            <div style={box}>
+              <p style={mutedTitle}>1. Ranking entre amigos</p>
+              <p style={mutedText}>Comparar levels e streaks com quem estiver testando junto.</p>
+            </div>
+            <div style={box}>
+              <p style={mutedTitle}>2. Guildas</p>
+              <p style={mutedText}>Criar grupo com metas coletivas e boss compartilhado.</p>
+            </div>
+            <div style={box}>
+              <p style={mutedTitle}>3. PWA</p>
+              <p style={mutedText}>Instalar como app no celular, sem barra do navegador.</p>
+            </div>
+            <div style={box}>
+              <p style={mutedTitle}>4. Quest adaptativa real</p>
+              <p style={mutedText}>Aumentar ou baixar treino baseado no desempenho recente.</p>
+            </div>
+          </div>
+        </Panel>
 
         <Panel title="Registro">
           {history.length === 0 ? (
@@ -1469,18 +1297,25 @@ function QuestRow({
   label,
   xp,
   checked,
+  category,
   onClick,
 }: {
   label: string;
   xp: number;
   checked: boolean;
+  category: Mission["category"];
   onClick: () => void;
 }) {
+  const categoryLabel =
+    category === "treino" ? "Treino" : category === "cardio" ? "Cardio" : "Hábito";
+
   return (
     <div style={questRowWrap}>
       <div style={questInfoWrap}>
         <div>{label}</div>
-        <div style={smallHint}>+{xp} XP</div>
+        <div style={smallHint}>
+          {categoryLabel} • +{xp} XP
+        </div>
       </div>
       <div style={questActionWrap}>
         <span style={{ ...questStatusBadge, ...(checked ? questStatusDone : questStatusPending) }}>
@@ -1566,40 +1401,6 @@ function Arise() {
   );
 }
 
-function labelGoal(goal: Goal) {
-  return goal === "emagrecer"
-    ? "Emagrecer"
-    : goal === "forca"
-    ? "Ganhar força"
-    : goal === "condicionamento"
-    ? "Condicionamento"
-    : "Disciplina";
-}
-
-function labelPlace(place: Place) {
-  return place === "casa" ? "Casa" : place === "rua" ? "Rua" : "Academia";
-}
-
-function labelLevel(levelType: LevelType) {
-  return levelType === "sedentario"
-    ? "Sedentário"
-    : levelType === "iniciante"
-    ? "Iniciante"
-    : levelType === "intermediario"
-    ? "Intermediário"
-    : "Avançado";
-}
-
-function labelEquipment(equipment: Equipment) {
-  return equipment === "nenhum"
-    ? "Nenhum"
-    : equipment === "barra"
-    ? "Barra"
-    : equipment === "halter"
-    ? "Halter"
-    : "Academia completa";
-}
-
 const welcomeMain: React.CSSProperties = {
   minHeight: "100vh",
   background: "radial-gradient(circle at top, #102c4d 0%, #050816 40%, #02040c 100%)",
@@ -1631,7 +1432,7 @@ const overlay: React.CSSProperties = {
 
 const centerCard: React.CSSProperties = {
   width: "100%",
-  maxWidth: 720,
+  maxWidth: 760,
   border: "2px solid rgba(34,211,238,0.35)",
   borderRadius: 24,
   padding: 32,
@@ -1676,6 +1477,23 @@ const heroPanel: React.CSSProperties = {
   alignItems: "center",
   gap: 16,
   flexWrap: "wrap",
+};
+
+const heroActions: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const miniButton: React.CSSProperties = {
+  borderRadius: 999,
+  border: "1px solid rgba(34,211,238,0.25)",
+  background: "transparent",
+  color: "#67e8f9",
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
 };
 
 const heroTitle: React.CSSProperties = {
@@ -1965,6 +1783,16 @@ const box: React.CSSProperties = {
   border: "1px solid rgba(34,211,238,0.12)",
   background: "#020617",
   padding: 16,
+};
+
+const progressWrap: React.CSSProperties = {
+  marginBottom: 14,
+};
+
+const progressLabelRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  marginBottom: 8,
 };
 
 const mutedTitle: React.CSSProperties = {
