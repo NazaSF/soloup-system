@@ -13,6 +13,7 @@ type AttributeKey =
   | "agilidade"
   | "disciplina"
   | "mentalidade";
+type RankName = "E" | "E+" | "D" | "D+" | "C" | "C+" | "B" | "B+" | "A" | "A+" | "S";
 
 type Profile = {
   name: string;
@@ -26,12 +27,14 @@ type Profile = {
   equipment: Equipment;
 };
 
+type MissionCategory = "treino" | "habito" | "cardio" | "desafio" | "guilda";
+
 type Mission = {
   id: string;
   label: string;
   xp: number;
   done: boolean;
-  category: "treino" | "habito" | "cardio" | "desafio";
+  category: MissionCategory;
 };
 
 type Boss = {
@@ -44,13 +47,20 @@ type Boss = {
 
 type Attributes = Record<AttributeKey, number>;
 
+type HistoryEntry = {
+  day: string;
+  xp: number;
+  perfect: boolean;
+};
+
 type SaveData = {
   screen: "welcome" | "onboarding" | "system";
   currentStep: number;
   profile: Profile;
   missions: Mission[];
-  xp: number;
-  level: number;
+  guildMissions: Mission[];
+  totalXp: number;
+  rankPoints: number;
   streak: number;
   bestStreak: number;
   waterDays: number;
@@ -58,10 +68,17 @@ type SaveData = {
   bossesDone: string[];
   attributes: Attributes;
   attributePoints: number;
-  history: { day: string; xp: number; perfect: boolean }[];
+  history: HistoryEntry[];
+  musicOn: boolean;
+  guildName: string;
+  guildXp: number;
+  guildBossProgress: number;
+  guildBossDefeats: number;
+  lastDayIndividualGain: number;
+  lastDayRankGain: number;
 };
 
-const SAVE_KEY = "soloup-v9-save";
+const SAVE_KEY = "soloup-v10-save";
 
 const questionOrder = [
   "name",
@@ -122,48 +139,47 @@ const allBosses: Boss[] = [
   {
     id: "shadow-overlord",
     name: "Monarca das Sombras",
-    description: "Alcance o level 5.",
-    rewardXp: 320,
-    icon: "🕶️",
+    description: "Alcance o level 8.",
+    rewardXp: 360,
+    icon: "🖤",
   },
   {
     id: "discipline-lord",
     name: "Senhor da Disciplina",
-    description: "Chegue a streak 7.",
+    description: "Chegue a melhor streak 7.",
     rewardXp: 450,
     icon: "⚔️",
   },
+  {
+    id: "abyss-judge",
+    name: "Juiz do Abismo",
+    description: "Alcance rank D.",
+    rewardXp: 600,
+    icon: "🔥",
+  },
 ];
 
-function getRank(level: number) {
-  if (level >= 15) return "S";
-  if (level >= 11) return "A";
-  if (level >= 7) return "B";
-  if (level >= 4) return "C";
-  if (level >= 2) return "D";
-  return "E";
-}
+const rankTrack: ReadonlyArray<{ name: RankName; points: number }> = [
+  { name: "E", points: 0 },
+  { name: "E+", points: 100 },
+  { name: "D", points: 300 },
+  { name: "D+", points: 600 },
+  { name: "C", points: 1000 },
+  { name: "C+", points: 1500 },
+  { name: "B", points: 2100 },
+  { name: "B+", points: 2800 },
+  { name: "A", points: 3600 },
+  { name: "A+", points: 4500 },
+  { name: "S", points: 5600 },
+];
 
-function buildClass(goal: Goal, place: Place) {
-  if (goal === "emagrecer") return place === "rua" ? "Corredor das Sombras" : "Caçador da Queima";
-  if (goal === "forca") return place === "academia" ? "Guardião de Ferro" : "Executor Brutal";
-  if (goal === "condicionamento") return "Predador Cardio";
-  return "Monge da Disciplina";
-}
-
-function buildFocus(goal: Goal) {
-  if (goal === "emagrecer") return "Redução de gordura + constância";
-  if (goal === "forca") return "Força funcional + progressão";
-  if (goal === "condicionamento") return "Fôlego + resistência";
-  return "Disciplina + consistência diária";
-}
-
-function bmiTarget(height: number) {
-  const healthyUpper = 24.9 * height * height;
-  const safeTarget = Math.round((healthyUpper - 2) * 10) / 10;
-  const firstTarget = Math.round((safeTarget + 5) * 10) / 10;
-  return { firstTarget, safeTarget };
-}
+const motivationalQuotes = [
+  "Você sobreviveu. Agora evolua.",
+  "O sistema reconheceu seu crescimento.",
+  "Fraqueza descartada. Novo nível alcançado.",
+  "Seu esforço rasgou o limite anterior.",
+  "A versão antiga de você ficou para trás.",
+];
 
 function labelGoal(goal: Goal) {
   return goal === "emagrecer"
@@ -199,13 +215,107 @@ function labelEquipment(equipment: Equipment) {
     : "Academia completa";
 }
 
+function buildClass(goal: Goal, place: Place) {
+  if (goal === "emagrecer") return place === "rua" ? "Corredor das Sombras" : "Caçador da Queima";
+  if (goal === "forca") return place === "academia" ? "Guardião de Ferro" : "Executor Brutal";
+  if (goal === "condicionamento") return "Predador Cardio";
+  return "Monge da Disciplina";
+}
+
+function buildFocus(goal: Goal) {
+  if (goal === "emagrecer") return "Redução de gordura + constância";
+  if (goal === "forca") return "Força funcional + progressão";
+  if (goal === "condicionamento") return "Fôlego + resistência";
+  return "Disciplina + consistência diária";
+}
+
+function bmiTarget(height: number) {
+  const healthyUpper = 24.9 * height * height;
+  const safeTarget = Math.round((healthyUpper - 2) * 10) / 10;
+  const firstTarget = Math.round((safeTarget + 5) * 10) / 10;
+  return { firstTarget, safeTarget };
+}
+
 function createMission(
   id: string,
   label: string,
   xp: number,
-  category: Mission["category"]
+  category: MissionCategory
 ): Mission {
-  return { id, label, xp, category, done: false };
+  return { id, label, xp, done: false, category };
+}
+
+function getLevelInfo(totalXp: number) {
+  let level = 1;
+  let remaining = totalXp;
+  let cost = 100;
+
+  while (remaining >= cost) {
+    remaining -= cost;
+    level += 1;
+    cost += 25;
+  }
+
+  return {
+    level,
+    currentXp: remaining,
+    xpToNext: cost,
+    progress: Math.round((remaining / cost) * 100),
+  };
+}
+
+function getGuildLevelInfo(guildXp: number) {
+  let level = 1;
+  let remaining = guildXp;
+  let cost = 160;
+
+  while (remaining >= cost) {
+    remaining -= cost;
+    level += 1;
+    cost += 60;
+  }
+
+  return {
+    level,
+    currentXp: remaining,
+    xpToNext: cost,
+    progress: Math.round((remaining / cost) * 100),
+  };
+}
+
+function getRankInfo(rankPoints: number): {
+  rank: RankName;
+  progress: number;
+  currentFloor: number;
+  nextPoints: number;
+  isMax: boolean;
+} {
+  let currentRank: RankName = "E";
+  let currentIndex = 0;
+
+  for (let i = 0; i < rankTrack.length; i += 1) {
+    if (rankPoints >= rankTrack[i].points) {
+      currentRank = rankTrack[i].name;
+      currentIndex = i;
+    }
+  }
+
+  const currentFloor = rankTrack[currentIndex].points;
+  const next = rankTrack[currentIndex + 1];
+  const nextPoints = next ? next.points : currentFloor;
+
+  const progress =
+    next && nextPoints > currentFloor
+      ? Math.round(((rankPoints - currentFloor) / (nextPoints - currentFloor)) * 100)
+      : 100;
+
+  return {
+    rank: currentRank,
+    progress: Math.max(0, Math.min(100, progress)),
+    currentFloor,
+    nextPoints,
+    isMax: !next,
+  };
 }
 
 function generateGymMissions(profile: Profile, intensity: number, advancedBonus: number) {
@@ -213,44 +323,43 @@ function generateGymMissions(profile: Profile, intensity: number, advancedBonus:
 
   if (profile.levelType === "sedentario") {
     return [
-      createMission("gym-bike", `Bike ou esteira ${8 + intensity * 4} min`, 20 + advancedBonus, "cardio"),
-      createMission("gym-press", `${base} séries de peitoral em máquina`, 20 + intensity * 6 + advancedBonus, "treino"),
-      createMission("gym-leg", `${base} séries de perna em máquina`, 20 + intensity * 6 + advancedBonus, "treino"),
+      createMission("gym-cardio", `Bike ou esteira ${8 + intensity * 4} min`, 22 + advancedBonus, "cardio"),
+      createMission("gym-chest", `${base} séries de peitoral em máquina`, 22 + intensity * 6 + advancedBonus, "treino"),
+      createMission("gym-leg", `${base} séries de perna em máquina`, 22 + intensity * 6 + advancedBonus, "treino"),
     ];
   }
 
   if (profile.levelType === "iniciante") {
     return [
-      createMission("gym-push", `${base} séries de supino ou peck deck`, 25 + intensity * 8 + advancedBonus, "treino"),
-      createMission("gym-pull", `${base} séries de puxada frontal`, 25 + intensity * 8 + advancedBonus, "treino"),
-      createMission("gym-leg", `${base} séries de leg press`, 25 + intensity * 8 + advancedBonus, "treino"),
-      createMission("gym-cardio", `Cardio ${8 + intensity * 5} min`, 18 + intensity * 5 + advancedBonus, "cardio"),
+      createMission("gym-push", `${base} séries de supino ou peck deck`, 26 + intensity * 8 + advancedBonus, "treino"),
+      createMission("gym-pull", `${base} séries de puxada frontal`, 26 + intensity * 8 + advancedBonus, "treino"),
+      createMission("gym-leg", `${base} séries de leg press`, 26 + intensity * 8 + advancedBonus, "treino"),
+      createMission("gym-cardio", `Cardio ${8 + intensity * 5} min`, 20 + intensity * 5 + advancedBonus, "cardio"),
     ];
   }
 
   if (profile.levelType === "intermediario") {
     return [
-      createMission("gym-upper", `${base} séries de peito + ombro`, 30 + intensity * 8 + advancedBonus, "treino"),
-      createMission("gym-back", `${base} séries de costas + bíceps`, 30 + intensity * 8 + advancedBonus, "treino"),
-      createMission("gym-leg", `${base} séries de perna`, 30 + intensity * 8 + advancedBonus, "treino"),
-      createMission("gym-core", `${base - 1} séries de abdômen`, 18 + intensity * 6 + advancedBonus, "treino"),
-      createMission("gym-cardio", `Cardio ${10 + intensity * 5} min`, 20 + intensity * 5 + advancedBonus, "cardio"),
+      createMission("gym-upper", `${base} séries de peito + ombro`, 32 + intensity * 8 + advancedBonus, "treino"),
+      createMission("gym-back", `${base} séries de costas + bíceps`, 32 + intensity * 8 + advancedBonus, "treino"),
+      createMission("gym-leg", `${base} séries de perna`, 32 + intensity * 8 + advancedBonus, "treino"),
+      createMission("gym-core", `${base - 1} séries de abdômen`, 20 + intensity * 6 + advancedBonus, "treino"),
+      createMission("gym-cardio", `Cardio ${10 + intensity * 5} min`, 22 + intensity * 5 + advancedBonus, "cardio"),
     ];
   }
 
   return [
-    createMission("gym-heavy1", `${base + 1} séries de compostos pesados`, 40 + intensity * 10 + advancedBonus, "treino"),
-    createMission("gym-heavy2", `${base + 1} séries de costas e perna`, 40 + intensity * 10 + advancedBonus, "treino"),
-    createMission("gym-heavy3", `${base} séries de acessórios`, 28 + intensity * 8 + advancedBonus, "treino"),
-    createMission("gym-core", `${base} séries de abdômen`, 20 + intensity * 6 + advancedBonus, "treino"),
-    createMission("gym-cardio", `Cardio ${12 + intensity * 6} min`, 22 + intensity * 5 + advancedBonus, "cardio"),
+    createMission("gym-heavy1", `${base + 1} séries de compostos pesados`, 42 + intensity * 10 + advancedBonus, "treino"),
+    createMission("gym-heavy2", `${base + 1} séries de costas e perna`, 42 + intensity * 10 + advancedBonus, "treino"),
+    createMission("gym-heavy3", `${base} séries de acessórios`, 30 + intensity * 8 + advancedBonus, "treino"),
+    createMission("gym-core", `${base} séries de abdômen`, 22 + intensity * 6 + advancedBonus, "treino"),
+    createMission("gym-cardio", `Cardio ${12 + intensity * 6} min`, 24 + intensity * 5 + advancedBonus, "cardio"),
   ];
 }
 
 function generateMissions(profile: Profile): Mission[] {
   const intensity = profile.timeType === "10" ? 1 : profile.timeType === "20" ? 2 : 3;
   const advancedBonus = profile.levelType === "avancado" ? 15 : 0;
-
   let missions: Mission[] = [];
 
   if (profile.place === "academia") {
@@ -319,10 +428,7 @@ function generateMissions(profile: Profile): Mission[] {
       profile.goal === "forca" ? "Proteína em 2 refeições" : "Alimentação limpa",
       30,
       "habito"
-    )
-  );
-
-  missions.push(
+    ),
     createMission(
       "daily-challenge",
       "🔥 Desafio do dia: completar todos os treinos e hábitos",
@@ -334,50 +440,87 @@ function generateMissions(profile: Profile): Mission[] {
   return missions;
 }
 
+function generateGuildMissions(profile: Profile): Mission[] {
+  const base = profile.timeType === "10" ? 1 : profile.timeType === "20" ? 2 : 3;
+
+  if (profile.goal === "forca") {
+    return [
+      createMission("guild-1", `Cumprir ${base + 1} missões da guilda`, 40, "guilda"),
+      createMission("guild-2", `Fechar treino de força coletivo`, 45, "guilda"),
+      createMission("guild-3", `Contribuir para o boss da guilda`, 55, "guilda"),
+    ];
+  }
+
+  if (profile.place === "academia") {
+    return [
+      createMission("guild-1", `Completar sessão da guilda na academia`, 40, "guilda"),
+      createMission("guild-2", `Finalizar cardio da guilda`, 35, "guilda"),
+      createMission("guild-3", `Contribuir para o boss da guilda`, 55, "guilda"),
+    ];
+  }
+
+  return [
+    createMission("guild-1", `Cumprir ${base + 1} metas de guilda`, 35, "guilda"),
+    createMission("guild-2", `Fechar atividade coletiva da guilda`, 40, "guilda"),
+    createMission("guild-3", `Contribuir para o boss da guilda`, 55, "guilda"),
+  ];
+}
+
 function generateDungeon(profile: Profile) {
   const intensity = profile.timeType === "10" ? 1 : profile.timeType === "20" ? 2 : 3;
+
   if (profile.goal === "forca") {
     return {
       name: "Dungeon Rank C",
       objective: `${20 + intensity * 15} flexões + ${20 + intensity * 15} agachamentos + ${10 + intensity * 10} abdominais`,
       reward: 220,
+      rankReward: 15,
     };
   }
+
   if (profile.goal === "condicionamento") {
     return {
       name: "Dungeon Rank C",
       objective: `${15 + intensity * 10} min de cardio contínuo + ${intensity * 3} blocos fortes`,
       reward: 220,
+      rankReward: 15,
     };
   }
+
   if (profile.goal === "disciplina") {
     return {
       name: "Dungeon Rank C",
       objective: `3 hábitos completos + ${10 + intensity * 5} min de movimento`,
       reward: 220,
+      rankReward: 15,
     };
   }
+
   if (profile.place === "academia") {
     return {
       name: "Dungeon Rank C",
       objective: `Treino full body + cardio final + alimentação limpa`,
       reward: 240,
+      rankReward: 18,
     };
   }
+
   return {
     name: "Dungeon Rank C",
     objective: `${15 + intensity * 10} min de cardio + ${15 + intensity * 10} agachamentos + alimentação limpa`,
     reward: 220,
+    rankReward: 15,
   };
 }
 
-export default function SoloUpV9() {
+export default function SoloUpV10() {
   const [screen, setScreen] = useState<"welcome" | "onboarding" | "system">("welcome");
   const [currentStep, setCurrentStep] = useState(0);
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [missions, setMissions] = useState<Mission[]>([]);
-  const [xp, setXp] = useState(0);
-  const [level, setLevel] = useState(1);
+  const [guildMissions, setGuildMissions] = useState<Mission[]>([]);
+  const [totalXp, setTotalXp] = useState(0);
+  const [rankPoints, setRankPoints] = useState(0);
   const [streak, setStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
   const [waterDays, setWaterDays] = useState(0);
@@ -385,21 +528,38 @@ export default function SoloUpV9() {
   const [bossesDone, setBossesDone] = useState<string[]>([]);
   const [attributes, setAttributes] = useState<Attributes>(defaultAttributes);
   const [attributePoints, setAttributePoints] = useState(0);
-  const [history, setHistory] = useState<{ day: string; xp: number; perfect: boolean }[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [typedQuestion, setTypedQuestion] = useState("");
   const [showArise, setShowArise] = useState(false);
   const [warning, setWarning] = useState("");
   const [toast, setToast] = useState("");
   const [shareMessage, setShareMessage] = useState("");
   const [musicOn, setMusicOn] = useState(false);
+  const [guildName, setGuildName] = useState("Sombra Ascendente");
+  const [guildXp, setGuildXp] = useState(0);
+  const [guildBossProgress, setGuildBossProgress] = useState(0);
+  const [guildBossDefeats, setGuildBossDefeats] = useState(0);
+  const [lastDayIndividualGain, setLastDayIndividualGain] = useState(0);
+  const [lastDayRankGain, setLastDayRankGain] = useState(0);
+  const [levelUpModal, setLevelUpModal] = useState<{
+    open: boolean;
+    level: number;
+    quote: string;
+  }>({
+    open: false,
+    level: 1,
+    quote: "",
+  });
 
   const audioRef = useRef<AudioContext | null>(null);
   const musicTimerRef = useRef<number | null>(null);
 
-  const rank = useMemo(() => getRank(level), [level]);
-  const dungeon = useMemo(() => generateDungeon(profile), [profile]);
+  const levelInfo = useMemo(() => getLevelInfo(totalXp), [totalXp]);
+  const guildLevelInfo = useMemo(() => getGuildLevelInfo(guildXp), [guildXp]);
+  const rankInfo = useMemo(() => getRankInfo(rankPoints), [rankPoints]);
   const currentClass = useMemo(() => buildClass(profile.goal, profile.place), [profile]);
   const currentFocus = useMemo(() => buildFocus(profile.goal), [profile]);
+  const dungeon = useMemo(() => generateDungeon(profile), [profile]);
 
   const bmi = useMemo(() => profile.weight / (profile.height * profile.height), [profile]);
   const bmiLabel = useMemo(() => {
@@ -416,10 +576,15 @@ export default function SoloUpV9() {
       : `${Math.min(profile.weight - 3, firstTarget)}kg primeiro, meta saudável ${safeTarget}kg`;
   }, [profile.height, profile.weight, profile.goal]);
 
-  const totalToday = useMemo(() => {
-    const total = missions.reduce((sum, m) => sum + (m.done ? m.xp : 0), 0);
-    return missions.length > 0 && missions.every((m) => m.done) ? total + 100 : total;
-  }, [missions]);
+  const totalToday = useMemo(
+    () => missions.reduce((sum, m) => sum + (m.done ? m.xp : 0), 0),
+    [missions]
+  );
+
+  const guildTotalToday = useMemo(
+    () => guildMissions.reduce((sum, m) => sum + (m.done ? m.xp : 0), 0),
+    [guildMissions]
+  );
 
   const dailyProgress = useMemo(() => {
     if (missions.length === 0) return 0;
@@ -427,16 +592,22 @@ export default function SoloUpV9() {
     return Math.round((done / missions.length) * 100);
   }, [missions]);
 
+  const guildProgress = useMemo(() => {
+    if (guildMissions.length === 0) return 0;
+    const done = guildMissions.filter((m) => m.done).length;
+    return Math.round((done / guildMissions.length) * 100);
+  }, [guildMissions]);
+
   const perfectDay = useMemo(
     () => missions.length > 0 && missions.every((m) => m.done),
     [missions]
   );
 
   const streakBonus = useMemo(() => {
-    if (streak >= 30) return 700;
-    if (streak >= 15) return 300;
-    if (streak >= 7) return 120;
-    if (streak >= 3) return 50;
+    if (streak >= 30) return 120;
+    if (streak >= 15) return 80;
+    if (streak >= 7) return 45;
+    if (streak >= 3) return 20;
     return 0;
   }, [streak]);
 
@@ -455,29 +626,31 @@ export default function SoloUpV9() {
       shadowStep: attributes.agilidade >= 8,
       monarchMind: attributes.disciplina >= 8,
       abyssMind: attributes.mentalidade >= 8,
-      eliteHunter: level >= 10,
+      eliteHunter: levelInfo.level >= 10,
     };
-  }, [attributes, level]);
+  }, [attributes, levelInfo.level]);
 
   const badges = useMemo(() => {
     const result: string[] = [];
-    if (level >= 2) result.push("🎖️ Iniciado");
+    if (levelInfo.level >= 2) result.push("🎖️ Iniciado");
     if (streak >= 3) result.push("🔥 Consistente");
     if (bestStreak >= 7) result.push("👑 Caçador Incansável");
-    if (level >= 5) result.push("⚔️ Guerreiro Ascendente");
+    if (levelInfo.level >= 5) result.push("⚔️ Guerreiro Ascendente");
     if (bossesDone.length >= 3) result.push("🛡️ Slayer de Boss");
+    if (guildBossDefeats >= 1) result.push("🏰 Defensor da Guilda");
     return result;
-  }, [level, streak, bestStreak, bossesDone.length]);
+  }, [levelInfo.level, streak, bestStreak, bossesDone.length, guildBossDefeats]);
 
   const bossProgress = useMemo<Record<string, number>>(() => {
     return {
       "lazy-king": Math.min((streak / 3) * 100, 100),
       "water-general": Math.min((waterDays / 4) * 100, 100),
       "routine-beast": Math.min((perfectDays / 2) * 100, 100),
-      "shadow-overlord": Math.min((level / 5) * 100, 100),
+      "shadow-overlord": Math.min((levelInfo.level / 8) * 100, 100),
       "discipline-lord": Math.min((bestStreak / 7) * 100, 100),
+      "abyss-judge": rankInfo.rank !== "E" && rankInfo.rank !== "E+" ? 100 : 0,
     };
-  }, [streak, waterDays, perfectDays, level, bestStreak]);
+  }, [streak, waterDays, perfectDays, levelInfo.level, bestStreak, rankInfo.rank]);
 
   useEffect(() => {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -488,8 +661,9 @@ export default function SoloUpV9() {
       setCurrentStep(saved.currentStep ?? 0);
       setProfile(saved.profile ?? defaultProfile);
       setMissions(saved.missions ?? []);
-      setXp(saved.xp ?? 0);
-      setLevel(saved.level ?? 1);
+      setGuildMissions(saved.guildMissions ?? []);
+      setTotalXp(saved.totalXp ?? 0);
+      setRankPoints(saved.rankPoints ?? 0);
       setStreak(saved.streak ?? 0);
       setBestStreak(saved.bestStreak ?? 0);
       setWaterDays(saved.waterDays ?? 0);
@@ -498,6 +672,13 @@ export default function SoloUpV9() {
       setAttributes(saved.attributes ?? defaultAttributes);
       setAttributePoints(saved.attributePoints ?? 0);
       setHistory(saved.history ?? []);
+      setMusicOn(saved.musicOn ?? false);
+      setGuildName(saved.guildName ?? "Sombra Ascendente");
+      setGuildXp(saved.guildXp ?? 0);
+      setGuildBossProgress(saved.guildBossProgress ?? 0);
+      setGuildBossDefeats(saved.guildBossDefeats ?? 0);
+      setLastDayIndividualGain(saved.lastDayIndividualGain ?? 0);
+      setLastDayRankGain(saved.lastDayRankGain ?? 0);
     } catch {}
   }, []);
 
@@ -507,8 +688,9 @@ export default function SoloUpV9() {
       currentStep,
       profile,
       missions,
-      xp,
-      level,
+      guildMissions,
+      totalXp,
+      rankPoints,
       streak,
       bestStreak,
       waterDays,
@@ -517,6 +699,13 @@ export default function SoloUpV9() {
       attributes,
       attributePoints,
       history,
+      musicOn,
+      guildName,
+      guildXp,
+      guildBossProgress,
+      guildBossDefeats,
+      lastDayIndividualGain,
+      lastDayRankGain,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   }, [
@@ -524,8 +713,9 @@ export default function SoloUpV9() {
     currentStep,
     profile,
     missions,
-    xp,
-    level,
+    guildMissions,
+    totalXp,
+    rankPoints,
     streak,
     bestStreak,
     waterDays,
@@ -534,6 +724,13 @@ export default function SoloUpV9() {
     attributes,
     attributePoints,
     history,
+    musicOn,
+    guildName,
+    guildXp,
+    guildBossProgress,
+    guildBossDefeats,
+    lastDayIndividualGain,
+    lastDayRankGain,
   ]);
 
   useEffect(() => {
@@ -564,8 +761,10 @@ export default function SoloUpV9() {
   }, [screen, currentStep, profile.name]);
 
   useEffect(() => {
+    if (musicOn) startMusic();
+    else stopMusic();
     return () => stopMusic();
-  }, []);
+  }, [musicOn]);
 
   function showToast(text: string) {
     setToast(text);
@@ -598,18 +797,18 @@ export default function SoloUpV9() {
         (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioContextClass) return;
       const ctx = new AudioContextClass();
-      const notes = [440, 660, 880, 1040];
+      const notes = [392, 523, 659, 880];
       notes.forEach((note, index) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = "sawtooth";
         osc.frequency.value = note;
-        gain.gain.value = 0.03;
+        gain.gain.value = 0.04;
         osc.connect(gain);
         gain.connect(ctx.destination);
-        const startAt = ctx.currentTime + index * 0.08;
+        const startAt = ctx.currentTime + index * 0.09;
         osc.start(startAt);
-        osc.stop(startAt + 0.16);
+        osc.stop(startAt + 0.18);
       });
     } catch {}
   }
@@ -636,7 +835,6 @@ export default function SoloUpV9() {
 
         base.type = "sine";
         high.type = "triangle";
-
         base.frequency.value = 110;
         high.frequency.value = 220;
 
@@ -675,16 +873,6 @@ export default function SoloUpV9() {
     }
   }
 
-  function toggleMusic() {
-    playClickSound();
-    setMusicOn((prev) => {
-      const next = !prev;
-      if (next) startMusic();
-      else stopMusic();
-      return next;
-    });
-  }
-
   function click(action?: () => void) {
     playClickSound();
     action?.();
@@ -699,8 +887,11 @@ export default function SoloUpV9() {
       setCurrentStep((prev) => prev + 1);
       return;
     }
+
     setMissions(generateMissions(profile));
+    setGuildMissions(generateGuildMissions(profile));
     setShowArise(true);
+
     window.setTimeout(() => {
       setShowArise(false);
       setScreen("system");
@@ -708,18 +899,34 @@ export default function SoloUpV9() {
   }
 
   function toggleMission(id: string) {
-    setMissions((prev) =>
-      prev.map((m) => {
-        if (m.id !== id) return m;
-        return { ...m, done: !m.done };
-      })
-    );
+    setMissions((prev) => prev.map((m) => (m.id === id ? { ...m, done: !m.done } : m)));
+  }
+
+  function toggleGuildMission(id: string) {
+    setGuildMissions((prev) => prev.map((m) => (m.id === id ? { ...m, done: !m.done } : m)));
   }
 
   function addAttribute(attr: AttributeKey) {
     if (attributePoints <= 0) return;
     setAttributes((prev) => ({ ...prev, [attr]: prev[attr] + 1 }));
     setAttributePoints((prev) => prev - 1);
+  }
+
+  function maybeOpenLevelModal(oldTotalXp: number, newTotalXp: number) {
+    const oldLevel = getLevelInfo(oldTotalXp).level;
+    const newLevel = getLevelInfo(newTotalXp).level;
+
+    if (newLevel > oldLevel) {
+      const gained = newLevel - oldLevel;
+      setAttributePoints((prev) => prev + gained * 3);
+      playLevelUpSound();
+      setLevelUpModal({
+        open: true,
+        level: newLevel,
+        quote: motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)],
+      });
+      showToast("LEVEL UP ⚡");
+    }
   }
 
   function concludeDay() {
@@ -733,27 +940,16 @@ export default function SoloUpV9() {
 
     const waterDone = missions.some((m) => m.id === "water" && m.done);
     const gainedTotal = totalToday + streakBonus;
-    const accumulatedXp = xp + gainedTotal;
+    const newTotalXp = totalXp + gainedTotal;
 
-    let newLevel = level;
-    let newXp = accumulatedXp;
-    let gainedLevels = 0;
+    maybeOpenLevelModal(totalXp, newTotalXp);
+    setTotalXp(newTotalXp);
 
-    while (newXp >= 100) {
-      newXp -= 100;
-      newLevel += 1;
-      gainedLevels += 1;
-    }
+    const rankGain = perfectDay ? 12 : 7;
+    setRankPoints((prev) => prev + rankGain);
 
-    setXp(newXp);
-    if (gainedLevels > 0) {
-      setLevel(newLevel);
-      setAttributePoints((prev) => prev + gainedLevels * 3);
-      playLevelUpSound();
-      showToast("LEVEL UP ⚡");
-    } else {
-      showToast("QUEST COMPLETE ✅");
-    }
+    setLastDayIndividualGain(gainedTotal);
+    setLastDayRankGain(rankGain);
 
     const newStreak = streak + 1;
     setStreak(newStreak);
@@ -777,54 +973,77 @@ export default function SoloUpV9() {
         if (boss.id === "lazy-king") return newStreak >= 3;
         if (boss.id === "water-general") return (waterDone ? waterDays + 1 : waterDays) >= 4;
         if (boss.id === "routine-beast") return (perfectDay ? perfectDays + 1 : perfectDays) >= 2;
-        if (boss.id === "shadow-overlord") return newLevel >= 5;
+        if (boss.id === "shadow-overlord") return getLevelInfo(newTotalXp).level >= 8;
         if (boss.id === "discipline-lord") return Math.max(bestStreak, newStreak) >= 7;
+        if (boss.id === "abyss-judge") {
+          const nextRank = getRankInfo(rankPoints + rankGain).rank;
+          return nextRank !== "E" && nextRank !== "E+";
+        }
         return false;
       });
 
     if (newlyCompleted.length > 0) {
       const reward = newlyCompleted.reduce((sum, b) => sum + b.rewardXp, 0);
+      const rewardedXp = newTotalXp + reward;
+      maybeOpenLevelModal(newTotalXp, rewardedXp);
+      setTotalXp(rewardedXp);
       setBossesDone((prev) => [...prev, ...newlyCompleted.map((b) => b.id)]);
-      setXp((prev) => {
-        let total = prev + reward;
-        let extraLevels = 0;
-        while (total >= 100) {
-          total -= 100;
-          extraLevels += 1;
-        }
-        if (extraLevels > 0) {
-          setLevel((l) => l + extraLevels);
-          setAttributePoints((p) => p + extraLevels * 3);
-        }
-        return total;
-      });
       showToast("BOSS DERROTADO 👑");
+    } else {
+      showToast("QUEST COMPLETE ✅");
     }
 
     setMissions(generateMissions(profile));
   }
 
+  function concludeGuildDay() {
+    if (guildTotalToday === 0) {
+      showToast("Nenhuma missão da guilda foi concluída.");
+      return;
+    }
+
+    setGuildXp((prev) => prev + guildTotalToday);
+    setGuildBossProgress((prev) => {
+      const next = prev + Math.min(40, guildTotalToday / 4);
+      if (next >= 100) {
+        setGuildBossDefeats((d) => d + 1);
+        showToast("BOSS DA GUILDA DERROTADO 🏰");
+        return 0;
+      }
+      showToast("MISSÃO DE GUILDA COMPLETA 🛡️");
+      return next;
+    });
+
+    setGuildMissions(generateGuildMissions(profile));
+  }
+
   function failDay() {
-    setWarning("⚠️ Sistema detectou falha. Missão de recuperação aplicada.");
+    setWarning("⚠️ Sistema detectou falha. Você perdeu o XP do dia anterior e os pontos de rank anteriores.");
     setStreak(0);
-    setXp((prev) => Math.max(0, prev - 20));
-    setMissions((prev) =>
-      prev.map((m, idx) =>
-        idx === 0
-          ? { ...m, label: `${m.label} + recuperação extra`, done: false }
-          : { ...m, done: false }
-      )
-    );
+
+    if (lastDayIndividualGain > 0) {
+      setTotalXp((prev) => Math.max(0, prev - lastDayIndividualGain));
+    }
+    if (lastDayRankGain > 0) {
+      setRankPoints((prev) => Math.max(0, prev - lastDayRankGain));
+    }
+
+    setLastDayIndividualGain(0);
+    setLastDayRankGain(0);
+
+    setMissions(generateMissions(profile));
+    showToast("PENALIDADE APLICADA ❌");
   }
 
   async function shareBuild() {
     const text = `SOLOUP BUILD
 Nome: ${profile.name}
 Classe: ${currentClass}
-Rank: ${rank}
-Level: ${level}
+Rank: ${rankInfo.rank}
+Level: ${levelInfo.level}
 Foco: ${currentFocus}
 Meta: ${targetWeight}
+Guilda: ${guildName} Lv.${guildLevelInfo.level}
 Atributos -> Força ${attributes.forca} | Vitalidade ${attributes.vitalidade} | Agilidade ${attributes.agilidade} | Disciplina ${attributes.disciplina} | Mentalidade ${attributes.mentalidade}
 Dificuldade semanal: ${weeklyDifficulty}`;
 
@@ -836,6 +1055,14 @@ Dificuldade semanal: ${weeklyDifficulty}`;
       setShareMessage("Não foi possível copiar.");
       window.setTimeout(() => setShareMessage(""), 2000);
     }
+  }
+
+  function completeDungeon() {
+    const newTotalXp = totalXp + dungeon.reward;
+    maybeOpenLevelModal(totalXp, newTotalXp);
+    setTotalXp(newTotalXp);
+    setRankPoints((prev) => prev + dungeon.rankReward);
+    showToast("DUNGEON CLEAR 🗝️");
   }
 
   function resetAll() {
@@ -852,20 +1079,20 @@ Dificuldade semanal: ${weeklyDifficulty}`;
           <p style={miniLabel}>SOLOUP SYSTEM</p>
           <h1 style={heroTitle}>Desperte.</h1>
           <p style={heroText}>
-            O sistema fitness inspirado em Solo Leveling. Crie seu personagem, receba um plano automático e evolua na vida real.
+            O sistema fitness inspirado em Solo Leveling. Crie seu personagem, evolua rank por rank e fortaleça sua guilda.
           </p>
           <div style={buttonRow}>
             <button style={primaryButton} onClick={() => click(() => setScreen("onboarding"))}>
               Criar personagem
             </button>
-            <button style={secondaryButton} onClick={toggleMusic}>
+            <button style={secondaryButton} onClick={() => click(() => setMusicOn((prev) => !prev))}>
               {musicOn ? "Parar trilha" : "Tocar trilha"}
             </button>
           </div>
           <div style={box}>
-            <p style={mutedTitle}>Trilha do sistema</p>
+            <p style={mutedTitle}>V10 ativa</p>
             <p style={mutedText}>
-              A música ambiente é gerada pelo próprio app via WebAudio, então combina com a vibe do projeto e não depende de faixa com copyright.
+              Rank mais lento, level up cinematográfico, guilda local, penalidade pesada e arte própria dentro do sistema.
             </p>
           </div>
         </section>
@@ -898,6 +1125,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               onChange={(e) => updateProfile("name", e.target.value)}
             />
           )}
+
           {stepKey === "age" && (
             <input
               style={inputStyle}
@@ -906,6 +1134,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               onChange={(e) => updateProfile("age", Number(e.target.value || 0))}
             />
           )}
+
           {stepKey === "height" && (
             <input
               style={inputStyle}
@@ -915,6 +1144,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               onChange={(e) => updateProfile("height", Number(e.target.value || 0))}
             />
           )}
+
           {stepKey === "weight" && (
             <input
               style={inputStyle}
@@ -924,6 +1154,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               onChange={(e) => updateProfile("weight", Number(e.target.value || 0))}
             />
           )}
+
           {stepKey === "goal" && (
             <div style={choiceGrid}>
               <Choice label="Emagrecer" active={profile.goal === "emagrecer"} onClick={() => click(() => updateProfile("goal", "emagrecer"))} />
@@ -932,6 +1163,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               <Choice label="Disciplina" active={profile.goal === "disciplina"} onClick={() => click(() => updateProfile("goal", "disciplina"))} />
             </div>
           )}
+
           {stepKey === "place" && (
             <div style={choiceGrid}>
               <Choice label="Casa" active={profile.place === "casa"} onClick={() => click(() => updateProfile("place", "casa"))} />
@@ -939,6 +1171,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               <Choice label="Academia" active={profile.place === "academia"} onClick={() => click(() => updateProfile("place", "academia"))} />
             </div>
           )}
+
           {stepKey === "levelType" && (
             <div style={choiceGrid}>
               <Choice label="Sedentário" active={profile.levelType === "sedentario"} onClick={() => click(() => updateProfile("levelType", "sedentario"))} />
@@ -947,6 +1180,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               <Choice label="Avançado" active={profile.levelType === "avancado"} onClick={() => click(() => updateProfile("levelType", "avancado"))} />
             </div>
           )}
+
           {stepKey === "timeType" && (
             <div style={choiceGrid}>
               <Choice label="10 min" active={profile.timeType === "10"} onClick={() => click(() => updateProfile("timeType", "10"))} />
@@ -954,6 +1188,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               <Choice label="40 min" active={profile.timeType === "40"} onClick={() => click(() => updateProfile("timeType", "40"))} />
             </div>
           )}
+
           {stepKey === "equipment" && (
             <div style={choiceGrid}>
               <Choice label="Nenhum" active={profile.equipment === "nenhum"} onClick={() => click(() => updateProfile("equipment", "nenhum"))} />
@@ -985,10 +1220,10 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             </p>
           </div>
           <div style={heroActions}>
-            <button style={miniButton} onClick={toggleMusic}>
+            <button style={miniButton} onClick={() => click(() => setMusicOn((prev) => !prev))}>
               {musicOn ? "Parar trilha" : "Trilha"}
             </button>
-            <div style={rankBadge}>Rank {rank}</div>
+            <div style={rankBadge}>Rank {rankInfo.rank}</div>
           </div>
         </section>
 
@@ -996,17 +1231,17 @@ Dificuldade semanal: ${weeklyDifficulty}`;
         {warning ? <div style={warningBox}>{warning}</div> : null}
 
         <section style={grid4}>
-          <StatCard title="Level" value={String(level)} />
-          <StatCard title="XP" value={String(xp)} />
+          <StatCard title="Level" value={String(levelInfo.level)} />
+          <StatCard title="XP" value={`${levelInfo.currentXp}/${levelInfo.xpToNext}`} />
           <StatCard title="Streak" value={String(streak)} />
           <StatCard title="Melhor streak" value={String(bestStreak)} />
         </section>
 
         <section style={grid4}>
-          <StatCard title="Pontos de atributo" value={String(attributePoints)} />
-          <StatCard title="Força" value={String(attributes.forca)} />
-          <StatCard title="Vitalidade" value={String(attributes.vitalidade)} />
-          <StatCard title="Agilidade" value={String(attributes.agilidade)} />
+          <StatCard title="Rank" value={rankInfo.rank} />
+          <StatCard title="Rank progress" value={`${rankInfo.progress}%`} />
+          <StatCard title="Guilda Lv." value={String(guildLevelInfo.level)} />
+          <StatCard title="Guilda XP" value={`${guildLevelInfo.currentXp}/${guildLevelInfo.xpToNext}`} />
         </section>
 
         <Panel title="Perfil gerado pelo sistema">
@@ -1046,9 +1281,9 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             ))}
 
             <div style={box}>
-              <p style={mutedTitle}>Como usar</p>
+              <p style={mutedTitle}>Sistema de punição</p>
               <p style={mutedText}>
-                Cada linha abaixo é um treino ou missão do dia. Clique em <strong>Feito</strong> quando concluir. Se marcou errado, clique em <strong>Desfazer</strong>.
+                Se você falhar no dia, perde o XP do dia anterior e também perde os pontos de rank do dia anterior.
               </p>
             </div>
 
@@ -1093,7 +1328,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             <div style={box}>
               <p style={mutedTitle}>Como derrotar os bosses</p>
               <p style={mutedText}>
-                Mantenha streaks, complete hábitos, feche dias perfeitos e suba de nível. Cada boss exige um tipo de evolução.
+                Mantenha streaks, complete hábitos, feche dias perfeitos, suba de level e suba de rank. Cada boss exige um tipo de evolução.
               </p>
             </div>
 
@@ -1121,25 +1356,54 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             })}
           </Panel>
 
-          <Panel title="Diretiva do sistema">
+          <Panel title="Guilda">
             <div style={box}>
-              <p style={mutedTitle}>Alimentação</p>
-              <p style={mutedText}>
-                Baseie a rotina em comida simples: ovos, frango, arroz, feijão, carne, banana, aveia, legumes e água. Segure refrigerante, doce diário e belisco noturno.
-              </p>
+              <p style={mutedTitle}>Nome da guilda</p>
+              <input
+                style={inputStyle}
+                value={guildName}
+                onChange={(e) => setGuildName(e.target.value)}
+                placeholder="Nome da guilda"
+              />
             </div>
+
             <div style={box}>
-              <p style={mutedTitle}>Recompensa</p>
+              <p style={mutedTitle}>Progresso da guilda</p>
               <p style={mutedText}>
-                Dias perfeitos rendem mais EXP. Streaks aumentam bônus. Bosses trazem picos grandes de evolução.
+                Level {guildLevelInfo.level} • XP da guilda não conta no XP individual.
               </p>
+              <div style={hpOuter}>
+                <div style={{ ...hpInner, width: `${guildLevelInfo.progress}%` }} />
+              </div>
             </div>
+
             <div style={box}>
-              <p style={mutedTitle}>Penalidade</p>
-              <p style={mutedText}>
-                Falhar quebra streak e reduz XP. O sistema pune a inércia, mas recompensa retorno rápido.
-              </p>
+              <p style={mutedTitle}>Boss da guilda</p>
+              <p style={mutedText}>Contribua apenas com missões da guilda para causar dano.</p>
+              <div style={hpOuter}>
+                <div style={{ ...hpInner, width: `${guildBossProgress}%` }} />
+              </div>
             </div>
+
+            {guildMissions.map((mission) => (
+              <QuestRow
+                key={mission.id}
+                label={mission.label}
+                xp={mission.xp}
+                checked={mission.done}
+                category={mission.category}
+                onClick={() => click(() => toggleGuildMission(mission.id))}
+              />
+            ))}
+
+            <div style={footerRow}>
+              <span>XP da guilda hoje</span>
+              <strong>{guildTotalToday}</strong>
+            </div>
+
+            <button style={primaryButton} onClick={() => click(concludeGuildDay)}>
+              Concluir missões da guilda
+            </button>
           </Panel>
         </section>
 
@@ -1149,47 +1413,29 @@ Dificuldade semanal: ${weeklyDifficulty}`;
               <p style={mutedTitle}>{dungeon.name}</p>
               <p style={mutedText}>{dungeon.objective}</p>
               <p style={{ ...mutedText, marginTop: 10 }}>
-                Recompensa: <strong>+{dungeon.reward} XP</strong>
+                Recompensa individual: <strong>+{dungeon.reward} XP</strong>
+              </p>
+              <p style={{ ...mutedText, marginTop: 6 }}>
+                Recompensa de rank: <strong>+{dungeon.rankReward} pontos</strong>
               </p>
             </div>
-            <button
-              style={primaryButton}
-              onClick={() => {
-                click(() => {
-                  setXp((prev) => {
-                    let total = prev + dungeon.reward;
-                    let extraLevels = 0;
-                    while (total >= 100) {
-                      total -= 100;
-                      extraLevels += 1;
-                    }
-                    if (extraLevels > 0) {
-                      setLevel((l) => l + extraLevels);
-                      setAttributePoints((p) => p + extraLevels * 3);
-                      playLevelUpSound();
-                    }
-                    showToast("DUNGEON CLEAR 🗝️");
-                    return total;
-                  });
-                });
-              }}
-            >
+            <button style={primaryButton} onClick={() => click(completeDungeon)}>
               Concluir dungeon
             </button>
           </Panel>
 
           <Panel title="Guia de dicas">
             <div style={box}>
-              <p style={mutedTitle}>1. Consistência vence intensidade isolada</p>
-              <p style={mutedText}>É melhor 20 minutos todos os dias do que 2 horas uma vez e sumir por uma semana.</p>
+              <p style={mutedTitle}>1. O rank sobe devagar de propósito</p>
+              <p style={mutedText}>Level mede progresso imediato. Rank mede constância real e demora mais para subir.</p>
             </div>
             <div style={box}>
-              <p style={mutedTitle}>2. Não marque falso positivo</p>
-              <p style={mutedText}>O sistema só funciona se você respeitar a própria evolução.</p>
+              <p style={mutedTitle}>2. A punição é séria</p>
+              <p style={mutedText}>Falhou? Você paga o preço. Isso cria tensão e valoriza os dias consistentes.</p>
             </div>
             <div style={box}>
-              <p style={mutedTitle}>3. Água e sono importam</p>
-              <p style={mutedText}>Sem água e descanso, até o melhor treino perde impacto.</p>
+              <p style={mutedTitle}>3. Guilda é separada</p>
+              <p style={mutedText}>Missões da guilda aumentam apenas o nível da guilda, não o XP individual.</p>
             </div>
           </Panel>
         </section>
@@ -1236,12 +1482,14 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             <div style={infoLine}>
               <span style={mutedText}>Rank / Level</span>
               <strong>
-                {rank} / {level}
+                {rankInfo.rank} / {levelInfo.level}
               </strong>
             </div>
             <div style={infoLine}>
-              <span style={mutedText}>Dificuldade semanal</span>
-              <strong>{weeklyDifficulty}</strong>
+              <span style={mutedText}>Guilda</span>
+              <strong>
+                {guildName} Lv.{guildLevelInfo.level}
+              </strong>
             </div>
             <div style={infoLine}>
               <span style={mutedText}>Melhor streak</span>
@@ -1260,11 +1508,11 @@ Dificuldade semanal: ${weeklyDifficulty}`;
           <div style={twoCol}>
             <div style={box}>
               <p style={mutedTitle}>1. Ranking entre amigos</p>
-              <p style={mutedText}>Comparar levels e streaks com a galera que estiver testando junto.</p>
+              <p style={mutedText}>Comparar levels, streaks e rank com a galera que estiver testando junto.</p>
             </div>
             <div style={box}>
-              <p style={mutedTitle}>2. Guildas</p>
-              <p style={mutedText}>Grupo com metas coletivas e boss compartilhado.</p>
+              <p style={mutedTitle}>2. Guilda online real</p>
+              <p style={mutedText}>Sincronizar membros, boss compartilhado e progresso coletivo real.</p>
             </div>
             <div style={box}>
               <p style={mutedTitle}>3. PWA</p>
@@ -1272,7 +1520,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
             </div>
             <div style={box}>
               <p style={mutedTitle}>4. Quest adaptativa real</p>
-              <p style={mutedText}>Aumentar ou baixar treino baseado no desempenho recente.</p>
+              <p style={mutedText}>Aumentar ou baixar treino com base no desempenho recente.</p>
             </div>
           </div>
         </Panel>
@@ -1299,6 +1547,26 @@ Dificuldade semanal: ${weeklyDifficulty}`;
           </button>
         </div>
       </div>
+
+      {levelUpModal.open ? (
+        <div style={modalOverlay} onClick={() => setLevelUpModal((prev) => ({ ...prev, open: false }))}>
+          <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+            <FantasyWarriorArt />
+            <div style={modalTextWrap}>
+              <p style={miniLabel}>SYSTEM MESSAGE</p>
+              <h2 style={modalTitle}>LEVEL UP</h2>
+              <p style={modalSubtitle}>Novo nível alcançado: {levelUpModal.level}</p>
+              <p style={modalQuote}>{levelUpModal.quote}</p>
+              <button
+                style={primaryButton}
+                onClick={() => setLevelUpModal((prev) => ({ ...prev, open: false }))}
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -1362,7 +1630,7 @@ function QuestRow({
   label: string;
   xp: number;
   checked: boolean;
-  category: Mission["category"];
+  category: MissionCategory;
   onClick: () => void;
 }) {
   const categoryLabel =
@@ -1372,6 +1640,8 @@ function QuestRow({
       ? "Cardio"
       : category === "desafio"
       ? "Desafio"
+      : category === "guilda"
+      ? "Guilda"
       : "Hábito";
 
   return (
@@ -1435,6 +1705,45 @@ function SkillCard({
         {unlocked ? "Desbloqueada" : "Bloqueada"}
       </div>
     </div>
+  );
+}
+
+function FantasyWarriorArt() {
+  return (
+    <svg viewBox="0 0 320 420" style={warriorSvg} aria-hidden="true">
+      <defs>
+        <linearGradient id="bgGlow" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="#1e293b" stopOpacity="0.2" />
+        </linearGradient>
+        <linearGradient id="armor" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#9bdfff" />
+          <stop offset="100%" stopColor="#1d4ed8" />
+        </linearGradient>
+      </defs>
+
+      <rect x="0" y="0" width="320" height="420" rx="26" fill="#020617" />
+      <circle cx="160" cy="120" r="110" fill="url(#bgGlow)" opacity="0.35" />
+      <circle cx="160" cy="92" r="34" fill="#cbd5e1" />
+      <path d="M115 175 Q160 145 205 175 L220 280 Q160 320 100 280 Z" fill="url(#armor)" />
+      <path d="M120 178 L100 300 L70 380" stroke="#67e8f9" strokeWidth="8" fill="none" />
+      <path d="M200 178 L220 300 L250 380" stroke="#67e8f9" strokeWidth="8" fill="none" />
+      <path d="M160 180 L160 330" stroke="#e0f2fe" strokeWidth="8" />
+      <path d="M110 205 L210 205" stroke="#dbeafe" strokeWidth="6" />
+      <path d="M75 215 L40 320" stroke="#38bdf8" strokeWidth="7" />
+      <path d="M245 215 L280 320" stroke="#38bdf8" strokeWidth="7" />
+      <path d="M40 320 L80 330 L55 380 Z" fill="#7dd3fc" />
+      <path d="M280 320 L240 330 L265 380 Z" fill="#7dd3fc" />
+      <circle cx="147" cy="92" r="4" fill="#0f172a" />
+      <circle cx="173" cy="92" r="4" fill="#0f172a" />
+      <path d="M145 109 Q160 117 175 109" stroke="#0f172a" strokeWidth="3" fill="none" />
+      <path d="M125 60 Q160 25 195 60" stroke="#38bdf8" strokeWidth="10" fill="none" />
+      <path d="M155 42 L165 20 L175 42" fill="#67e8f9" />
+      <circle cx="60" cy="90" r="6" fill="#67e8f9" opacity="0.6" />
+      <circle cx="255" cy="78" r="8" fill="#67e8f9" opacity="0.5" />
+      <circle cx="90" cy="55" r="4" fill="#67e8f9" opacity="0.7" />
+      <circle cx="235" cy="140" r="5" fill="#67e8f9" opacity="0.6" />
+    </svg>
   );
 }
 
@@ -1972,6 +2281,65 @@ const toastBox: React.CSSProperties = {
   borderRadius: 14,
   fontWeight: 800,
   textAlign: "center",
+};
+
+const modalOverlay: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.84)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 1000,
+  padding: 20,
+};
+
+const modalCard: React.CSSProperties = {
+  width: "100%",
+  maxWidth: 900,
+  display: "grid",
+  gridTemplateColumns: "minmax(240px, 320px) 1fr",
+  gap: 20,
+  background: "rgba(2,6,23,0.95)",
+  border: "2px solid rgba(34,211,238,0.35)",
+  borderRadius: 24,
+  padding: 24,
+  boxShadow: "0 0 50px rgba(34,211,238,0.2)",
+};
+
+const warriorSvg: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  minHeight: 320,
+  borderRadius: 20,
+  overflow: "hidden",
+};
+
+const modalTextWrap: React.CSSProperties = {
+  display: "grid",
+  alignContent: "center",
+  gap: 12,
+};
+
+const modalTitle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 52,
+  fontWeight: 900,
+  lineHeight: 1,
+};
+
+const modalSubtitle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 22,
+  color: "#a5f3fc",
+  fontWeight: 700,
+};
+
+const modalQuote: React.CSSProperties = {
+  margin: 0,
+  fontSize: 18,
+  lineHeight: 1.6,
+  color: "#dbeafe",
 };
 
 const glowA: React.CSSProperties = {
