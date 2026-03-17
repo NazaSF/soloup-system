@@ -421,15 +421,15 @@ export default function SoloUpV8() {
     };
   }, [attributes, level]);
 
-  const bossProgress = useMemo(() => {
-    return {
-      "lazy-king": Math.min((streak / 3) * 100, 100),
-      "water-general": Math.min((waterDays / 4) * 100, 100),
-      "routine-beast": Math.min((perfectDays / 2) * 100, 100),
-      "shadow-overlord": Math.min((level / 5) * 100, 100),
-      "discipline-lord": Math.min((bestStreak / 7) * 100, 100),
-    };
-  }, [streak, waterDays, perfectDays, level, bestStreak]);
+  const bossProgress = useMemo<Record<string, number>>(() => {
+  return {
+    "lazy-king": Math.min((streak / 3) * 100, 100),
+    "water-general": Math.min((waterDays / 4) * 100, 100),
+    "routine-beast": Math.min((perfectDays / 2) * 100, 100),
+    "shadow-overlord": Math.min((level / 5) * 100, 100),
+    "discipline-lord": Math.min((bestStreak / 7) * 100, 100),
+  };
+}, [streak, waterDays, perfectDays, level, bestStreak]);
 
   useEffect(() => {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -1050,7 +1050,7 @@ Dificuldade semanal: ${weeklyDifficulty}`;
 
             {allBosses.map((boss) => {
               const done = bossesDone.includes(boss.id);
-              const progress = done ? 100 : bossProgress[boss.id] ?? 0;
+              const progress = done ? 100 : (bossProgress[boss.id] ?? 0);
               return (
                 <div key={boss.id} style={bossRow}>
                   <div style={{ flex: 1 }}>
